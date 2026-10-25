@@ -1,0 +1,25 @@
+# Aerona needs no python packages, and that is a design constraint, not an oversight.
+#
+# `main.py` is standard library only so that it runs on the barest image a game panel
+# offers (`python:3.11-slim`, the Pterodactyl python yolks, an Alpine box with a python
+# symlink). Those images have no pip cache, no wheel compiler, and sometimes no network
+# access at start — a bootstrap script that needs `pip install` first is a bootstrap
+# script that crash-loops a container.
+#
+# So: nothing to install here. What follows is only what the *project* needs when you are
+# changing it rather than running it.
+#
+#   Rust (stable, rustfmt + clippy)  pinned by rust-toolchain.toml; `python3 main.py build`
+#                                    installs a minimal toolchain into .cache/ when a
+#                                    prebuilt bin/aerona-<platform> is not present.
+#   Node 20 + npm                    only for dashboard/ (vite, react, tailwind). The
+#                                    shipped archive already contains dashboard/dist, so an
+#                                    operator never runs npm; `npm ci` in dashboard/ is for
+#                                    someone editing the site.
+#
+# If you want the same static pass over the launcher that the Rust side gets from clippy,
+# any of these will do — none of them is required, and none of them is imported by
+# main.py:
+#
+#   ruff check .
+#   python3 -m unittest discover -s tests -t .    # the launcher's own tests, stdlib only

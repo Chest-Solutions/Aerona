@@ -1,0 +1,38 @@
+[package]
+name = "aerona-api"
+description = "Aerona dashboard HTTP API + static site host, served at /api/v1"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "aerona-api"
+path = "src/main.rs"
+
+[dependencies]
+aerona-core = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+headers = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+base64 = { workspace = true }
+urlencoding = { workspace = true }
+reqwest = { workspace = true }
+dashmap = { workspace = true }
+parking_lot = { workspace = true }
+regex = { workspace = true }
+zeroize = { workspace = true }
+r2d2 = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

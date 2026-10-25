@@ -1,0 +1,19 @@
+{
+  "name": "Aerona",
+  "short_name": "Aerona",
+  "description": "Self-hosted Discord moderation: warns, tickets, stickies, anti-raid and a rules-first text filter.",
+  "start_url": "/",
+  "scope": "/",
+  "id": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "dir": "ltr",
+  "lang": "en",
+  "categories": ["productivity", "utilities"],
+  "icons": [
+    { "src": "/aerona-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/aerona-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/aerona-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

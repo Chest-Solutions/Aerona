@@ -1,0 +1,23 @@
+Aerona 1.0.0 — linux-x86_64 release archive
+built 2026-10-25T20:31:38Z from a source tree with no git history in it
+
+Run it:
+    python3 main.py                # first boot writes .env, migrates, prints a pairing code
+    python3 main.py check          # configuration and schema, nothing started
+    python3 main.py healthcheck    # for a container or panel health probe
+
+Verify it (needs no toolchain, only curl and the shipped binary):
+    sh scripts/verify-panel.sh
+
+Contents:
+    main.py, start.sh, start.bat   the launcher — the only thing you execute
+    crates/                          the Rust workspace, if you want to rebuild
+    dashboard/dist/                  the prerendered site: no npm, no node, already built
+    dashboard/src/                   its source, so a fork can change the tokens
+    bin/aerona-linux-x86_64           statically linked, no libc assumption on the host
+
+    binary md5  fca11a0992b5b91338c806875690d99a
+    entries     214   (this file included)
+
+This archive is a snapshot, not an update channel. Nothing phones home; there is no
+telemetry to disable and no licence to accept. MIT, see LICENSE.

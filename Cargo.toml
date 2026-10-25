@@ -1,0 +1,88 @@
+[workspace]
+resolver = "2"
+members = ["crates/aerona-core", "crates/aerona-bot", "crates/aerona-api", "crates/aerona"]
+
+[workspace.package]
+version = "1.0.0"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT"
+authors = ["Aerona"]
+publish = false
+
+# Versions are floor-pinned: every crate in the graph resolves identically for
+# anyone who clones this repo (Cargo.lock is committed), and we never pull an
+# "unstable latest" that raises the MSRV out from under us.
+[workspace.dependencies]
+aerona-core = { path = "crates/aerona-core" }
+aerona-api = { path = "crates/aerona-api" }
+aerona-bot = { path = "crates/aerona-bot" }
+
+tokio = { version = "1.53", default-features = false, features = ["rt-multi-thread", "macros", "signal", "time", "sync", "net", "io-util", "process"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio", "form", "matched-path", "macros"] }
+tower-http = { version = "0.6", default-features = false, features = ["set-header", "catch-panic", "trace", "compression-br", "fs"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.32", default-features = false, features = ["bundled", "array", "functions"] }
+r2d2 = "0.8"
+thiserror = "2.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter", "ansi"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "gzip"] }
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+rand = "0.8"
+subtle = "2.6"
+zeroize = { version = "1.8", features = ["derive"] }
+urlencoding = "2.1"
+# `unicode-case` is not optional: without it `case_insensitive(true)` fails to
+# build, which would silently turn every AI-filter rule into a case-sensitive one.
+regex = { version = "1.11", default-features = false, features = ["std", "perf", "unicode-case", "unicode-perl"] }
+dashmap = "6.1"
+parking_lot = "0.12"
+headers = "0.4"
+base64 = "0.22"
+futures = "0.3"
+
+# Discord. Every feature we do not enable is code we do not compile, link, or
+# pay RSS for: no voice, no httplite, no chrono.
+# Serenity's build script refuses `http`/`gateway` without a TLS backend; rustls keeps
+# OpenSSL out of the tree. `collector` is what makes `ChannelId::messages` enumerable
+# without pulling in `framework`'s command machinery a second time.
+serenity = { version = "0.12.5", default-features = false, features = [
+  "cache", "client", "collector", "framework", "gateway", "http", "model",
+  "rustls_backend", "standard_framework", "utils",
+] }
+
+# Serenity is by far the largest crate in the tree and this box has 2 GB of RAM and
+# no swap: at `opt-level = 1` (our dev default, chosen so the tests run fast) its
+# `rustc` invocation is OOM-killed. Dependencies do not need our optimisation level —
+# only our own crates do, because they carry the test loops.
+[profile.dev.package.serenity]
+opt-level = 0
+debug = false
+
+[profile.test.package.serenity]
+opt-level = 0
+debug = false
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+# Unwind, never abort. `panic = "abort"` is 2 % smaller and a lot faster to start, and
+# it would break the product's central resilience rule: the worker isolates a panic per
+# event and per task *by catching it*, and the unified binary treats a dead worker task
+# as a retryable failure. With `abort` either one would take the dashboard down with it.
+panic = "unwind"
+strip = "symbols"
+overflow-checks = true
+
+[profile.dev]
+opt-level = 1
+debug = false
+
+[profile.test]
+opt-level = 1
+debug = false

@@ -1,0 +1,32 @@
+[package]
+name = "aerona-core"
+description = "Shared config, database, domain models and security primitives for Aerona"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { workspace = true }
+r2d2 = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+sha2 = { workspace = true }
+hmac = { workspace = true }
+dashmap = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
+subtle = { workspace = true }
+zeroize = { workspace = true }
+regex = { workspace = true }
+parking_lot = { workspace = true }
+base64 = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

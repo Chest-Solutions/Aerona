@@ -1,0 +1,14 @@
+/target
+/node_modules
+/dashboard/node_modules
+/dashboard/dist
+/data
+*.db
+*.db-wal
+*.db-shm
+.env
+__pycache__/
+*.pyc
+
+# Prerender template cache (lives outside dist/ so it is never a URL)
+dashboard/.prerender-template.html

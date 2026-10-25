@@ -1,0 +1,33 @@
+[package]
+name = "aerona"
+description = "Aerona in one process: the dashboard, the API and the Discord worker"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# A library *and* a binary: the binary is the thin entry point, the library is the part
+# with tests. Nothing about this crate's behaviour depends on being the one that owns
+# `main`, and keeping the logic addressable is what lets `main.py doctor` be a thin shell
+# over `aerona doctor` instead of a reimplementation of it.
+[[bin]]
+name = "aerona"
+path = "src/main.rs"
+
+[lib]
+name = "aerona"
+path = "src/lib.rs"
+
+[dependencies]
+aerona-core = { workspace = true }
+aerona-api = { workspace = true }
+aerona-bot = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+reqwest = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

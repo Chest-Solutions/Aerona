@@ -1,0 +1,15 @@
+# Conservative, reproducible build settings.
+#
+# `incremental = false` — a container that rebuilds from a cold `target/` every deploy
+# gains nothing from incremental state, and skipping it keeps debug info out of the
+# artifacts.
+#
+# Deliberately NO `jobs` here. A workspace-wide parallelism cap is a guess about the
+# machine, and a wrong one is fatal in the interesting direction: `serenity` needs close
+# to 800 MB per rustc at release settings, so pinning `jobs = 2` OOM-kills a 2 GB
+# container's first build (seen: a 37-minute compile that used 5 minutes of CPU, then
+# `SIGKILL`). `main.py` sizes `-j` from `/proc/meminfo` instead, which is the only place
+# that knows whether this is a 40-core workstation or a game panel. Build by hand on a
+# small box? `cargo build --release -j 1`.
+[build]
+incremental = false

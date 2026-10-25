@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aerona dashboard</title>
+    <meta
+      name="description"
+      content="The dashboard for a self-hosted Aerona install: moderation, tickets, stickies, anti-raid, links and spam guards, configured per server."
+    />
+    <!-- A private panel, not a site. The dev server and any document that never reaches the
+         prerendered page have to say so here, or a search engine that finds an open port gets
+         a title worth crawling. The prerender overwrites both tags per route. -->
+    <meta name="robots" content="noindex" />
+    <!-- Which way the browser should paint its own furniture — scrollbars, form controls, the
+         find bar. Declaring both is what lets the panel follow the theme instead of fighting it. -->
+    <meta name="color-scheme" content="light dark" />
+    <!--head-->
+    <!-- The mark, in three rasters rather than one vector: a browser picks the size it wants and
+         an OS that installs the panel as an app wants an exact 180. Everything here is written by
+         `python3 scripts/make-icons.py` from `artwork/aerona.png`, so there is one file of art and
+         no hand-drawn second version of the logo to keep in step. -->
+    <link rel="icon" href="/favicon-32.png" type="image/png" sizes="32x32" />
+    <link rel="icon" href="/favicon-48.png" type="image/png" sizes="48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <!-- The browser chrome should match the panel before any of our CSS has loaded, and
+         "the panel" means light or dark depending on this browser's own preference — so two
+         declarations, resolved by media query rather than by a stylesheet that has not
+         arrived yet. -->
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0a0a" media="(prefers-color-scheme: dark)" />
+    <!-- The theme, decided before React exists and before the stylesheet paints: a file rather
+         than an inline block, because the CSP on this document is `script-src 'self'` — an inline
+         script here is blocked, and the panel then hydrates the wrong colours and reports a
+         hydration mismatch. Keep in step with the `KEY` in `src/components/theme-toggle.tsx`; a
+         browser with JavaScript off gets the system preference either way. -->
+    <script src="/theme-boot.js"></script>
+  </head>
+  <body>
+    <div id="root"><!--app-html--></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
