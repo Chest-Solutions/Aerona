@@ -3,7 +3,7 @@
 //! Split of responsibility, stated once because it explains every design decision
 //! below: `aerona-api` owns *intent* (who is allowed to do what, what is stored, what
 //! is audited) and this crate owns *execution* (the gateway, the actions, the
-//! reactions to events). The two never speak over a socket — the API writes rows into
+//! reactions to events). The two never speak over a socket - the API writes rows into
 //! `action_outbox` and this worker claims them, so a restart loses nothing and a
 //! Discord outage turns into a backed-up queue instead of a failed HTTP request.
 //!
@@ -15,17 +15,23 @@
 //!   keeps memory flat on a 5 000-member server.
 //! * **No handler may panic.** Discord sends garbage sometimes (a field absent, a
 //!   malformed mention, a payload from an older schema). Every entry point catches a
-//!   panic from the future it spawned, logs it, and carries on — a panic here would
+//!   panic from the future it spawned, logs it, and carries on - a panic here would
 //!   take the gateway down for every server at once.
 //! * **Best effort outward, strict inward.** Writes to Discord are allowed to fail
 //!   silently-but-loudly (a warning, a queue entry marked failed); writes to the
 //!   database go through the same validated core layer the API uses.
 
+pub mod capes;
 pub mod commands;
 pub mod events;
 pub mod gate;
+pub mod logger;
+pub mod notify;
 pub mod outbox;
+pub mod raid;
 pub mod state;
+#[cfg(test)]
+mod stress;
 pub mod tasks;
 pub mod worker;
 

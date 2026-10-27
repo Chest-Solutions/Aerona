@@ -2,13 +2,13 @@
  * The one page between "a browser on this box" and "the dashboard".
  *
  * It has two jobs and neither is explaining anything: send the browser to Discord, and if
- * Discord refuses, say which refusal it was — in one sentence, next to the button that fixes
+ * Discord refuses, say which refusal it was - in one sentence, next to the button that fixes
  * it. The redirect-URI diagnostics used to live here; they went to `python3 main.py check`,
  * which is where a value that has to match character for character belongs: on the console,
  * beside the file that sets it.
  *
  * `?next=` is preserved by hand through the bounce, because the server is what stores it
- * against the OAuth state — see `crate::oauth::safe_next`.
+ * against the OAuth state - see `crate::oauth::safe_next`.
  */
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
@@ -30,7 +30,7 @@ const AUTHORIZE = '/api/v1/auth/discord'
 
 /** Discord's `error` query parameter, translated. The values are fixed strings from the
  *  OAuth spec plus the ones this API raises itself, and anything unrecognised falls back to
- *  the generic sentence — the parameter is attacker-reachable text, so nothing here is ever
+ *  the generic sentence - the parameter is attacker-reachable text, so nothing here is ever
  *  echoed, only compared. */
 function explain(error: string | null): string | null {
   if (!error) return null
@@ -103,7 +103,7 @@ export default function Login() {
               <CardDescription>
                 {configured === false
                   ? 'The dashboard is behind Discord. Two variables in .env open it.'
-                  : 'Aerona has no password. Discord tells it which servers you administer, and this shows those — nothing before you sign in.'}
+                  : 'No password. Discord says which servers you administer, and this lists those.'}
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-4">

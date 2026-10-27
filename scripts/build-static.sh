@@ -7,7 +7,7 @@
 #
 #   --target x86_64-unknown-linux-musl   the result is statically linked, so it runs on a
 #                                        panel image of any glibc vintage (2.31 bookworm,
-#                                        2.36 bullseye, alpine, whatever) — a glibc build
+#                                        2.36 bullseye, alpine, whatever) - a glibc build
 #                                        made here would demand the build box's glibc.
 #   CARGO_PROFILE_RELEASE_CODEGEN_UNITS  the workspace release profile is tuned for size
 #      =16, LTO off                     (codegen-units=1 + thin LTO) and needs well over
@@ -19,7 +19,7 @@
 #                                        such a box, `serenity` was killed at 1.2 GB of RSS
 #                                        with `-C opt-level=1 -C codegen-units=128`, because
 #                                        most of that memory is rustc's type arena rather
-#                                        than LLVM's per-CGU work — so the ceiling is the
+#                                        than LLVM's per-CGU work - so the ceiling is the
 #                                        crate, not the flags. What cleared it was swap:
 #                                        `fallocate -l 4G /swapfile && chmod 600 /swapfile
 #                                        && mkswap /swapfile && swapon /swapfile`. An OOM
@@ -34,7 +34,7 @@ TARGET="${AERONA_MUSL_TARGET:-x86_64-unknown-linux-musl}"
 ARCH="${TARGET%%-*}"
 OUT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/bin"
 # The name `main.py` looks for is `aerona-<os>-<arch>`, and it is built from
-# `sys.platform`/`uname -m` on the target — not from a Rust target triple, whose fields
+# `sys.platform`/`uname -m` on the target - not from a Rust target triple, whose fields
 # are in a different order (`x86_64-unknown-linux-musl` is arch-vendor-os-abi, and
 # slicing it like a name yields "unknown"). Map the triples we can actually ship.
 case "$TARGET" in
@@ -88,7 +88,7 @@ if command -v file >/dev/null 2>&1; then file "$OUT_DIR/$NAME"; fi
 # artifact is NOT portable and must not be shipped.
 if command -v readelf >/dev/null 2>&1; then
     if readelf -lW "$OUT_DIR/$NAME" 2>/dev/null | grep -q "INTERP"; then
-        echo "warning: binary has a PT_INTERP segment — it is dynamically linked" >&2
+        echo "warning: binary has a PT_INTERP segment - it is dynamically linked" >&2
         exit 1
     fi
     echo "verified: no PT_INTERP, statically linked"

@@ -1,4 +1,4 @@
-//! Domain models — the single source of truth for config shapes shared by the
+//! Domain models: the single source of truth for config shapes shared by the
 //! bot, the API and the dashboard's generated types.
 //!
 //! Conventions that keep this codebase small and predictable:
@@ -33,7 +33,7 @@ pub enum Feature {
     AiFilter,
     /// Deterministic link and invite rules. No model, no cost, same enforcement pass.
     LinkGuard,
-    /// Rate and shape rules — flood, mentions, emoji, caps — on the bot's own windows.
+    /// Rate and shape rules: flood, mentions, emoji, caps: on the bot's own windows.
     AntiSpam,
     /// What Aerona is called, and what it looks like, in *this* server.
     Identity,
@@ -42,6 +42,8 @@ pub enum Feature {
     Logging,
     Commands,
     Keys,
+    /// Minecraft cape releases: the channel they are announced in, and who is told.
+    Capes,
 }
 
 impl Feature {
@@ -49,7 +51,7 @@ impl Feature {
     ///
     /// `autorole`, `welcome` and `commands` are three *screens* over one document, because
     /// the worker reads that one document for all three. Three rows would be three chances
-    /// to disagree about whether the goodbye message is on — and a toggle nothing reads is
+    /// to disagree about whether the goodbye message is on: and a toggle nothing reads is
     /// worse than no toggle at all. Aliasing happens here, at the key, so the panel stays
     /// free to group settings the way an operator thinks about them.
     pub fn storage_key(&self) -> &'static str {
@@ -59,7 +61,7 @@ impl Feature {
         }
     }
 
-    pub const ALL: [Feature; 14] = [
+    pub const ALL: [Feature; 15] = [
         Feature::General,
         Feature::Moderation,
         Feature::Tickets,
@@ -74,6 +76,7 @@ impl Feature {
         Feature::Logging,
         Feature::Commands,
         Feature::Keys,
+        Feature::Capes,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -92,6 +95,7 @@ impl Feature {
             Feature::Logging => "logging",
             Feature::Commands => "commands",
             Feature::Keys => "keys",
+            Feature::Capes => "capes",
         }
     }
 
@@ -115,7 +119,10 @@ impl Feature {
             | Feature::Keys
             | Feature::LinkGuard
             | Feature::AntiSpam
-            | Feature::Identity => None,
+            | Feature::Identity
+            // The cape notifier's records are its own tables; the document needs no second place
+            // to be cleared from, because there is nothing per-cape to reset.
+            | Feature::Capes => None,
         }
     }
 }
@@ -136,7 +143,7 @@ pub struct GuildSummary {
     pub bot_present: bool,
 }
 
-/// Row in `guild_state` — presence metadata, deliberately separate from config
+/// Row in `guild_state`: presence metadata, deliberately separate from config
 /// so that config survives a re-invite.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct GuildState {
@@ -192,8 +199,6 @@ pub struct ModConfig {
     /// Number of active warnings that triggers the escalate action.
     pub strike_threshold: u8,
     pub escalate_action: StrikeAction,
-    /// Post the DM reason to the mod log as well.
-    pub dm_reason: bool,
     /// `!purge` limits, protecting the last N minutes of a channel.
     pub purge_max: u32,
     pub purge_min_age_secs: i64,
@@ -208,7 +213,6 @@ impl Default for ModConfig {
             warn_expiry_days: 0,
             strike_threshold: 0,
             escalate_action: StrikeAction::None,
-            dm_reason: true,
             purge_max: 200,
             purge_min_age_secs: 0,
         }
@@ -297,6 +301,11 @@ impl TicketStatus {
 #[serde(default)]
 pub struct TicketConfig {
     pub enabled: bool,
+    /// Where the board itself goes: the message with one button per type. A type row may name its
+    /// own channel, and then it wins; this is the default those rows fall back to, so an operator
+    /// who sets it once and presses Save gets the board posted without having to name a channel
+    /// for every type.
+    pub board_channel_id: Option<Snowflake>,
     pub category_id: Option<Snowflake>,
     pub support_role_id: Option<Snowflake>,
     pub transcript_channel_id: Option<Snowflake>,
@@ -308,16 +317,50 @@ pub struct TicketConfig {
     pub auto_close_days: i64,
     pub ping_support_role: bool,
     pub default_message: String,
+    /// The card posted in the ticket channel and the one posted when it closes. An empty title
+    /// or body keeps the built-in text, so a guild that changes nothing still gets a working
+    /// ticket rather than a blank card. `{user}`, `{ticket}` and `{reason}` are substituted.
+    pub open_title: String,
+    pub close_title: String,
+    pub close_body: String,
+    pub embed_color: u32,
     /// Buttons exposed on the panel.
     pub show_close: bool,
     pub show_claim: bool,
+    /// The transcript button. It is the one control in a ticket channel that is useful after
+    /// the conversation is over, so it is offered even in a guild that hides the other two.
+    pub show_transcript: bool,
+    /// Button wording. An empty label keeps the built-in one, the same rule the card text
+    /// follows: a server that changes nothing gets a named button, not a blank one.
+    pub close_label: String,
+    pub claim_label: String,
+    pub transcript_label: String,
+    /// Link buttons under the card, for the things staff are asked about all day: the rules,
+    /// a status page, an invite to a voice channel. Up to `TicketLink::MAX`.
+    pub links: Vec<TicketLink>,
     pub transcript_format: TranscriptFormat,
+    /// Minutes after a ticket closes before its channel is deleted. `0` keeps the channel, which
+    /// is what a guild that has not configured anything gets, because deleting a channel is the
+    /// one ticket action nobody can undo.
+    ///
+    /// The record and the transcript survive it: they are rows in Aerona's database, not messages
+    /// in the channel, which is the only reason this can be offered at all.
+    pub delete_after_minutes: u32,
+    /// How long those copies are kept, in days. `0` keeps them as long as the ticket row does,
+    /// which is the point of a transcript; a guild on a small disk can set 90 and the copies go,
+    /// while the transcript keeps its words and says which links it lost.
+    pub keep_ticket_files_days: u32,
+    /// Copy the pictures a ticket contained into Aerona before the channel goes. On by default,
+    /// and only ever applied to images: a Discord attachment is readable while its message is, and
+    /// a closed ticket whose channel is deleted has taken its screenshots with it.
+    pub keep_ticket_files: bool,
 }
 
 impl Default for TicketConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            board_channel_id: None,
             category_id: None,
             support_role_id: None,
             transcript_channel_id: None,
@@ -329,17 +372,103 @@ impl Default for TicketConfig {
             ping_support_role: true,
             default_message: "Thanks for opening a ticket. A moderator will be with you shortly."
                 .into(),
+            open_title: "Ticket {ticket} for {user}".into(),
+            close_title: "".into(),
+            close_body: "".into(),
+            embed_color: 0x58_65_F2,
             show_close: true,
             show_claim: true,
-            transcript_format: TranscriptFormat::Text,
+            show_transcript: true,
+            close_label: String::new(),
+            claim_label: String::new(),
+            transcript_label: String::new(),
+            links: Vec::new(),
+            transcript_format: TranscriptFormat::Html,
+            delete_after_minutes: 60,
+            keep_ticket_files: true,
+            keep_ticket_files_days: 0,
         }
+    }
+}
+
+impl TicketConfig {
+    /// The delay, in seconds, or `None` when this guild keeps closed channels. Clamped here rather
+    /// than at the form, because the document can also be written by a key holder or an older
+    /// panel: a stored `4_000_000` must not become "delete the channel in four years" and a
+    /// `1` must not be a race with the transcript being written. A week is the longest anyone can
+    /// ask for and one minute is the shortest that leaves time to read the ending.
+    pub fn channel_delete_delay(&self) -> Option<i64> {
+        match self.delete_after_minutes {
+            0 => None,
+            n => Some(i64::from(n.clamp(1, 10_080)) * 60),
+        }
+    }
+}
+
+/// The cap on what a transcript is allowed to keep of one file, and of one ticket. A byte limit is
+/// the only sane boundary here: `size` is what Discord said the file was, and the copy is what we
+/// actually hold.
+impl TicketConfig {
+    /// The days a kept file survives, or `None` for as long as the ticket row does.
+    pub fn file_retention_secs(&self) -> Option<i64> {
+        match self.keep_ticket_files_days {
+            0 => None,
+            d => Some(i64::from(d.clamp(1, 36_500)) * 86_400),
+        }
+    }
+
+    /// The largest single file a transcript will hold.
+    pub const FILE_MAX: u64 = 4 * 1024 * 1024;
+    /// The largest total a ticket's files may reach together.
+    pub const FILES_MAX: u64 = 8 * 1024 * 1024;
+}
+
+/// One file a ticket's transcript kept. This exists because a Discord attachment is not a record:
+/// it is a link that stops working when its message does, and a closed ticket's channel is now
+/// deleted on a timer. The bytes are ours, and the transcript they are inlined into outlives both.
+#[derive(Debug, Clone)]
+pub struct TicketFile {
+    /// `ticket_messages.seq` this was attached to.
+    pub seq: i64,
+    /// Its position in that row's attachment list, which is the order the renderer walks.
+    pub idx: i64,
+    pub name: String,
+    pub content_type: String,
+    pub width: u32,
+    pub height: u32,
+    pub bytes: Vec<u8>,
+}
+
+/// One link button on a ticket card. `url` is checked where the document is written, because a
+/// button Discord refuses takes the whole card down with it.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TicketLink {
+    pub label: String,
+    pub url: String,
+}
+
+impl TicketLink {
+    pub const LABEL_MAX: usize = 40;
+    pub const URL_MAX: usize = 500;
+    /// Discord's own limit for a row of buttons.
+    pub const MAX: usize = 5;
+
+    /// A button with no words or a scheme Discord does not speak is not a button, so neither
+    /// the API nor the worker offers one.
+    pub fn is_usable(&self) -> bool {
+        !self.label.is_empty()
+            && (self.url.starts_with("https://") || self.url.starts_with("http://"))
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TranscriptFormat {
+    /// A file you open in a browser: the images are shown, names are real, and internal notes
+    /// are marked. Text would lose every attachment, and JSON loses the reader.
     #[default]
+    Html,
     Text,
     Json,
 }
@@ -355,6 +484,12 @@ pub struct TicketPanel {
     pub emoji: Option<String>,
     pub support_role_id: Option<Snowflake>,
     pub sort: i64,
+    /// A panel is also a ticket *type*: the ticket it opens takes this colour and this subject
+    /// instead of the guild's, which is how one board becomes "Report a player", "Billing" and
+    /// "Server idea" without three configurations. `None` / empty means the guild's own value.
+    pub color: Option<u32>,
+    pub subject: String,
+    pub intro: String,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -371,6 +506,11 @@ pub struct TicketRecord {
     pub created_at: i64,
     pub closed_at: Option<i64>,
     pub message_count: i64,
+    /// When this ticket's channel is due to be deleted, and when it was. Both are read-only to
+    /// the panel: the schedule is written by the worker at close, and a deadline a browser could
+    /// move is not a deadline.
+    pub delete_at: Option<i64>,
+    pub channel_deleted_at: Option<i64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -383,8 +523,6 @@ pub struct StickyConfig {
     pub enabled: bool,
     /// Minimum seconds between reposts of the same message in one channel.
     pub cooldown_secs: u32,
-    /// Post the sticky above the newest message instead of editing in place.
-    pub repost: bool,
     pub max_per_channel: u8,
 }
 
@@ -393,10 +531,19 @@ impl Default for StickyConfig {
         Self {
             enabled: true,
             cooldown_secs: 120,
-            repost: false,
             max_per_channel: 3,
         }
     }
+}
+
+impl StickyConfig {
+    /// A `repost` switch used to live here: edit the bot's own message in place, or send a fresh
+    /// copy and delete the old one. The switch is gone because reposting is the only behaviour
+    /// that matches what a sticky is for - the message at the bottom of the channel, right now -
+    /// and an edited copy silently stops being the newest thing anybody reads. A document saved
+    /// while the switch existed still carries the key, so `normalize` retires it on the next
+    /// write instead of refusing every save after it.
+    pub const RETIRED_KEYS: [&'static str; 1] = ["repost"];
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -404,14 +551,80 @@ pub struct StickyRecord {
     pub id: i64,
     pub guild_id: Snowflake,
     pub channel_id: Snowflake,
+    /// The message this note was copied from. `0` means none: the text below is the sticky, and
+    /// the bot's own post is the only message involved.
     pub message_id: Snowflake,
     pub sticky_message_id: Option<Snowflake>,
     pub content: String,
+    /// An optional embed, so a sticky can be more than a line of text. Every field is optional;
+    /// any one of them - a colour on its own included - is enough to ask for a card, and the
+    /// colour falls back to Discord's blurple when none was chosen.
+    pub embed_title: Option<String>,
+    pub embed_body: Option<String>,
+    pub embed_color: Option<u32>,
     pub every_messages: u32,
     pub since_count: u32,
     pub created_by: Snowflake,
     pub created_at: i64,
     pub last_run_at: i64,
+}
+
+/// What it takes to author a sticky, from the panel or from a command. Everything the row needs
+/// except the bookkeeping the database fills in itself.
+#[derive(Debug, Clone, Default)]
+pub struct StickyDraft {
+    pub guild_id: Snowflake,
+    pub channel_id: Snowflake,
+    /// `Snowflake(0)`: not anchored to a message in Discord. The bot's own post is the sticky.
+    pub message_id: Snowflake,
+    pub content: String,
+    pub embed_title: Option<String>,
+    pub embed_body: Option<String>,
+    pub embed_color: Option<u32>,
+    pub every_messages: u32,
+    pub author: Snowflake,
+}
+
+impl StickyDraft {
+    /// Nothing to send is not a sticky.
+    pub fn is_empty(&self) -> bool {
+        self.content.trim().is_empty()
+            && self
+                .embed_title
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+            && self
+                .embed_body
+                .as_deref()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+    }
+}
+
+impl StickyRecord {
+    /// Whether this sticky is anchored to a message somebody picked in Discord.
+    pub fn anchored(&self) -> bool {
+        self.message_id.as_u64() != 0
+    }
+
+    /// Does this sticky want a card at all?
+    ///
+    /// A colour counts. The first version asked only for a title or a body, so the very natural
+    /// move - write a line of text and set it white - posted the line with no embed, and the
+    /// colour the operator picked was silently dropped on the floor.
+    pub fn has_embed(&self) -> bool {
+        self.embed_title.as_deref().unwrap_or_default().trim() != ""
+            || self.embed_body.as_deref().unwrap_or_default().trim() != ""
+            || self.embed_color.is_some()
+    }
+
+    /// The colour of the embed bar, with Discord's blurple as the fallback.
+    pub fn color(&self) -> u32 {
+        self.embed_color.unwrap_or(0x58_65_F2) & 0xff_ff_ff
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -644,7 +857,7 @@ impl Default for AiCategoryRule {
     }
 }
 
-/// Local pre-filter rule (table `ai_custom_rules`) — matched before the API call,
+/// Local pre-filter rule (table `ai_custom_rules`): matched before the API call,
 /// so an obvious hit costs no quota and no latency.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -845,7 +1058,7 @@ pub struct AutoConfig {
     pub welcome_embed_title: String,
     pub welcome_embed_description: String,
     /// A Discord colour as `0xRRGGBB`, kept as a number because that is what the API takes
-    /// and what the panel writes — a `#hex` string here would be a second format to parse.
+    /// and what the panel writes: a `#hex` string here would be a second format to parse.
     pub welcome_embed_color: u32,
     /// Thumbnail the joiner's avatar on the card. Costs no extra request: the same
     /// snowflake and hash that make the mention build the CDN URL.
@@ -873,7 +1086,7 @@ impl Default for AutoConfig {
             autorole_delay_mins: 0,
             welcome_enabled: true,
             welcome_channel_id: None,
-            welcome_message: "Welcome {user} to {server} — you are member #{count}.".into(),
+            welcome_message: "Welcome {user} to {server}: you are member #{count}.".into(),
             welcome_direct_dm: false,
             welcome_embed_title: String::new(),
             welcome_embed_description: String::new(),
@@ -898,7 +1111,7 @@ impl Default for AutoConfig {
 
 /// What a local guard does with an offending message. Narrower than the AI filter's
 /// action list on purpose: these rules are deterministic, so there is no "flag and let a
-/// human decide" tier — a rule that fires has already decided.
+/// human decide" tier: a rule that fires has already decided.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GuardAction {
@@ -941,7 +1154,7 @@ pub struct LinkGuardConfig {
     /// `discord.gg/x`, `discord.com/invite/x`, `discordapp.com/invite/x`.
     pub block_invites: bool,
     /// Domains that are always fine. Compared on the registrable suffix, so
-    /// `discord.com` allows `discord.com/invite/x`? No — it allows `docs.discord.com`,
+    /// `discord.com` allows `discord.com/invite/x`? No: it allows `docs.discord.com`,
     /// which is why invites are matched *before* the allowlist: an allowlisted domain
     /// never turns an invite into an exception.
     pub allowed_domains: Vec<String>,
@@ -1013,9 +1226,10 @@ impl Default for AntiSpamConfig {
     }
 }
 
-/// The bot's face in one server. Discord stores all three fields on the *guild member*,
-/// so a name or an avatar set here changes nothing for any other server — and clearing a
-/// field restores the account-wide one.
+/// The bot's face in one server. `nick` and `bio` live on the *guild member*, so they change
+/// nothing for any other server and clearing one restores the account-wide value. The pictures and
+/// the decorations are account-wide - Discord keeps them on the user - which is why the apply
+/// splits them across two endpoints rather than PATCHing one member document with all of it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct IdentityConfig {
@@ -1031,13 +1245,27 @@ pub struct IdentityConfig {
     /// `sha256:<16 hex>` of the staged image, or of the one Discord has. The dashboard
     /// shows it so two saves of the same file are visibly the same thing.
     pub avatar_hash: Option<String>,
+    /// The banner across the top of the bot's profile. Same arrangement as the avatar: bytes are
+    /// staged once through `PUT /identity/banner`, and only their digest is kept here. Bots carry
+    /// the same Nitro cosmetics as any other account, so there is no reason for the panel to offer
+    /// an avatar and stop there.
+    pub banner_hash: Option<String>,
+    /// Two decoration SKUs, sent to Discord as `avatar_decoration_id` and `banner_decoration_id`.
+    ///
+    /// Discord publishes no catalogue of these for a bot to read, so the panel's picker offers
+    /// what it *can* see - the decorations in use by members of this server, gathered by the
+    /// worker into `picker.decorations` - and takes an id typed in for anything else. An id that
+    /// the account does not own is refused by Discord, and the refusal is what the apply report
+    /// says; nothing here pretends otherwise.
+    pub avatar_decoration_id: Option<String>,
+    pub banner_decoration_id: Option<String>,
     /// Not a Discord field: the one-line description the dashboard and `/{prefix}help`
     /// show for Aerona in this server.
     pub about: Option<String>,
 }
 
 // The derive *is* the intent: every field is an `Option`, so "the bot's default identity in a
-// server" is "no field set, everything falls back to the account" — a hand-written impl could only
+// server" is "no field set, everything falls back to the account": a hand-written impl could only
 // drift from that.
 impl IdentityConfig {
     /// Every field unset: nothing to ask Discord for.
@@ -1062,8 +1290,12 @@ impl IdentityConfig {
 // Logging
 // ---------------------------------------------------------------------------
 
-/// Event keys the logger can toggle.
-pub const LOG_EVENTS: [&str; 11] = [
+/// Event keys the logger can toggle, and the list is exactly the set the bot emits.
+///
+/// `username_change` is deliberately absent even though Discord sends it: an account name is not a
+/// server event, the same change shows up in every guild at once, and a switch that could only ever
+/// log a duplicate is a switch nobody should have to reason about.
+pub const LOG_EVENTS: [&str; 10] = [
     "message_edit",
     "message_delete",
     "message_bulk_delete",
@@ -1073,25 +1305,159 @@ pub const LOG_EVENTS: [&str; 11] = [
     "member_unban",
     "role_change",
     "nickname_change",
-    "username_change",
     "channel_change",
 ];
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+/// The channel and the event list are the whole switch: a logger with no channel has nowhere to
+/// post, and one with no events checked posts nothing. A master toggle on top of those two would
+/// only ever be left on, so it is not here.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct LogConfig {
-    pub enabled: bool,
     pub channel_id: Option<Snowflake>,
+    /// Keys from [`LOG_EVENTS`].
     pub events: Vec<String>,
     pub ignore_bots: bool,
+    /// How many of this guild's messages to keep the text of, so an edit or a delete can quote
+    /// what changed instead of reporting that something changed.
     pub max_cached_messages: u32,
 }
 
-impl LogConfig {
-    pub fn tracks(&self, event: &str) -> bool {
-        self.enabled && self.events.iter().any(|e| e == event)
+impl Default for LogConfig {
+    fn default() -> Self {
+        Self {
+            channel_id: None,
+            // The four that make a self-hosted mod log worth having. The rest are one tick away,
+            // and a guild that never ticks anything should not be posting nothing forever either.
+            events: [
+                "message_edit",
+                "message_delete",
+                "member_join",
+                "member_leave",
+            ]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect(),
+            ignore_bots: true,
+            max_cached_messages: 500,
+        }
     }
 }
+
+impl LogConfig {
+    /// Should this event be posted? Only true with somewhere to post it, so a caller that asks
+    /// `tracks` before building anything never does work for a discarded card.
+    pub fn tracks(&self, event: &str) -> bool {
+        self.channel_id.is_some() && self.events.iter().any(|e| e == event)
+    }
+
+    /// Should this guild's text be cached at all, independent of whether anything is posted.
+    pub fn caches(&self) -> bool {
+        self.max_cached_messages > 0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Minecraft cape notifier
+// ---------------------------------------------------------------------------
+
+/// What the cape notifier posts, and how often it asks.
+///
+/// The source is the wiki category every documented cape belongs to (see [`crate::cape`] for why
+/// that is the right thing to poll and why it is not Mojang); this document is only about what to do
+/// with what it says.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CapeConfig {
+    pub enabled: bool,
+    /// Where the announcement goes. `None` is not a misconfiguration to be refused at save time: the
+    /// notifier keeps recording what it finds, so an operator can turn the feature on, read the list
+    /// a week later, and point it at a channel without having missed anything. The page says so.
+    pub channel_id: Option<Snowflake>,
+    /// The role to ping. `None` posts the card silently, which is what a server that only wants the
+    /// news in the channel picks.
+    pub ping_role_id: Option<Snowflake>,
+    /// How often to ask the wiki. The floor is not politeness theatre: the category is 60-odd pages
+    /// and the answer changes a few times a year, so a check faster than a quarter of an hour is
+    /// traffic for nothing. Clamped on use, not refused on save.
+    pub check_every_minutes: u32,
+    /// Attach the 3D render of the cape. It is drawn here, from the texture, so this is a question
+    /// about whether the message carries a picture at all - and the lever to pull if an operator
+    /// decides they want the text and the link only.
+    pub show_render: bool,
+    /// The bar on the left of the card.
+    pub embed_color: u32,
+}
+
+impl Default for CapeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            channel_id: None,
+            ping_role_id: None,
+            check_every_minutes: 20,
+            show_render: true,
+            embed_color: 0x58_65_F2,
+        }
+    }
+}
+
+impl CapeConfig {
+    /// The interval to sleep between polls, in seconds, clamped into the range that is worth having.
+    pub fn check_every_secs(&self) -> u64 {
+        (self.check_every_minutes.clamp(5, 1440) as u64) * 60
+    }
+
+    /// Is there anywhere to post? The list is written either way, so this decides the ping and not
+    /// the work.
+    pub fn announces(&self) -> bool {
+        self.enabled && self.channel_id.is_some()
+    }
+}
+
+/// One cape the notifier has seen, as the panel lists it. Written by the worker, read by the
+/// dashboard, and the row that answers "did it really come out, and when did you notice".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CapeRelease {
+    pub id: i64,
+    /// The page's id as the source spells it, which is what a rename cannot fake.
+    pub slug: String,
+    /// The page title, verbatim, for the link and for anybody comparing the two.
+    pub title: String,
+    /// The name the card shows.
+    pub name: String,
+    pub article_url: String,
+    /// The file the texture came from. Empty means the page had no flat artwork, which is why
+    /// `has_render` exists rather than a placeholder image.
+    pub texture_file: String,
+    /// Which picture the row carries: `drape` for the render made from the flat texture here,
+    /// `wiki` for the wiki's own render of the cape worn, and `none` when neither was available.
+    /// The panel shows this when an operator wonders why one cape has four angles and another has
+    /// one, and it is why a missing picture never became a missing announcement.
+    pub render_kind: String,
+    pub frames: u32,
+    /// Whether there is a picture to show at all, which is what `frames > 0` means. Kept because
+    /// every caller so far wants the yes-or-no rather than the count.
+    pub has_render: bool,
+    /// The revision the announcement was made from, so a page that is merely edited is updated
+    /// quietly instead of pinging twice for one cape.
+    pub last_rev: i64,
+    pub found_at: i64,
+    pub announced_at: Option<i64>,
+    /// Posts attempted and refused, for a row that never made it to the channel.
+    pub attempts: i32,
+}
+
+/// How many angles of each cape are kept. The announcement shows one; the panel turns it.
+/// How many frames one cape has: the drape views plus the sheet's own art, flat. Kept as a
+/// re-export of the renderer's own count so a frame added there cannot be missing here.
+pub const CAPE_FRAMES: usize = crate::cape::FRAMES;
+
+/// How many times the notifier will try to post one cape before it gives up and says so on the
+/// panel. A channel that refuses the bot is a configuration mistake, and five minutes of trying is
+/// a generous read of "the operator is asleep"; past that the row stays unannounced and the panel
+/// carries the reason, which is a thing a person can fix.
+pub const CAPE_MAX_ATTEMPTS: i32 = 5;
 
 // ---------------------------------------------------------------------------
 // API surface: keys, sessions, audit, stats
@@ -1381,14 +1747,29 @@ mod tests {
     }
 
     #[test]
-    fn log_config_tracks_only_when_enabled() {
+    fn log_config_tracks_only_when_it_has_somewhere_to_post() {
         let mut c = LogConfig {
             events: vec!["message_edit".into()],
+            max_cached_messages: 0,
             ..Default::default()
         };
-        assert!(!c.tracks("message_edit"), "disabled logger tracks nothing");
-        c.enabled = true;
+        // No channel: nothing to post to, so nothing to build. This is the half of the old
+        // `enabled` switch that meant something, and it is why the switch itself is gone.
+        assert!(
+            !c.tracks("message_edit"),
+            "a log with no channel logs nothing"
+        );
+        assert!(
+            !c.caches(),
+            "the default cache size of 500 is not what this sets"
+        );
+        c.channel_id = Some(Snowflake(5));
+        c.max_cached_messages = 500;
         assert!(c.tracks("message_edit"));
-        assert!(!c.tracks("member_ban"));
+        assert!(c.caches());
+        assert!(
+            !c.tracks("member_ban"),
+            "an unchecked event stays unchecked"
+        );
     }
 }

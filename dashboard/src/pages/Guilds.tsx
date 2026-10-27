@@ -2,7 +2,7 @@
  * The first page: every server this Discord account administers.
  *
  * Aerona's own servers come first, because they are the ones with data. The rest are not
- * dead links — each carries the invite the API built for it — and they stop being "the rest"
+ * dead links - each carries the invite the API built for it - and they stop being "the rest"
  * the moment the bot lands in one.
  */
 import { useMemo, useState } from 'react'

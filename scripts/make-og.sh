@@ -1,5 +1,5 @@
 #!/bin/sh
-# Regenerate dashboard/public/og-image.jpg (1200x630) — the card a Discord or Twitter
+# Regenerate dashboard/public/og-image.jpg (1200x630) - the card a Discord or Twitter
 # preview shows. Deliberately *not* part of `npm run build`: it needs ImageMagick and
 # DejaVu, neither of which a CI box has to have, and the output is a committed asset.
 #
@@ -56,7 +56,7 @@ magick \
   -fill "$soft" -font "$REG" -pointsize 33 \
   -draw "text 140,398 'Warns, tickets, stickies, raid defence and a'" \
   -draw "text 140,444 'rules-first text filter. One bot, one dashboard,'" \
-  -draw "text 140,490 'one SQLite file — on your own server.'" \
+  -draw "text 140,490 'one SQLite file - on your own server.'" \
   -fill "$mute" -font "$MONO" -pointsize 21 \
   -draw "text 884,236 'one process'" \
   -draw "text 884,278 'no cloud plan'" \

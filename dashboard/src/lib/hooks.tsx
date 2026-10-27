@@ -67,7 +67,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setMe(next)
       hadSession.current = next
       if (!next && was) {
-        // The panel was open and the session went away under it — revoked, expired, or the
+        // The panel was open and the session went away under it - revoked, expired, or the
         // key changed. Say so once, in the sentence a person acts on, then let the gate
         // bounce the view to the sign-in page.
         setCsrf(null)
@@ -90,7 +90,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     void refresh()
   }, [refresh])
   // A lost session ends the visit, it does not degrade it. Every request reports its 401 (see
-  // `request` in api.ts), and this re-reads `/me` once — guarded on having had a session, or a
+  // `request` in api.ts), and this re-reads `/me` once - guarded on having had a session, or a
   // signed-out browser's ordinary `/me` 401 would refresh itself forever.
   useEffect(() => {
     const onUnauthorized = () => {

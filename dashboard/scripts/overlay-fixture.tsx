@@ -4,7 +4,7 @@
  *
  * The shape is not decorative: it is what the pages actually render. The guild switcher's caption
  * sat directly under `DropdownMenuContent` with no group around it, Base UI's `Menu.GroupLabel`
- * threw reading `MenuGroupContext`, and the throw took the guild page with it — two rounds of
+ * threw reading `MenuGroupContext`, and the throw took the guild page with it - two rounds of
  * "the tabs don't work" for one line of console. A static audit can say a caption is not a group
  * label; only rendering says the rest of these parts are happy where the app puts them.
  */
@@ -33,17 +33,18 @@ import { Avatar, AvatarFallback, AvatarImage } from '../src/components/ui/avatar
 import { Switch } from '../src/components/ui/switch'
 import { Progress, ProgressLabel, ProgressValue } from '../src/components/ui/progress'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../src/components/ui/hover-card'
+import { FieldHint } from '../src/lib/settings-form'
 
 /**
  * What "covered" means here, because the honest answer is: not everything.
  *
- * `renderToStaticMarkup` does not run effects, and Base UI mounts a popup inside an effect — its
+ * `renderToStaticMarkup` does not run effects, and Base UI mounts a popup inside an effect - its
  * `Portal` renders `null` until the store says `mounted`. So the popup *contents* of a menu, select,
  * tooltip, dialog, sheet, popover or hover card are out of reach of a server render, and the
  * `popup: true` cases below are compiled-and-imported-but-not-asserted on purpose: they still catch a
  * part used outside its root *around* the portal, and they would catch a crash in a wrapper's own
  * body, but a caption inside a closed popup is not read by this harness. Asserting otherwise would be
- * the same mistake as the bug this file exists to prevent — a check that reports a pass it did not
+ * the same mistake as the bug this file exists to prevent - a check that reports a pass it did not
  * earn. The static rule in `prerender.mjs` ("a caption must not be a group-scoped primitive") is what
  * covers the popup case, and `verify-panel.sh` covers the shipped document.
  *
@@ -54,7 +55,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from '../src/components
 /**
  * A `check` case is not markup: it calls the real functions and returns the sentence explaining why
  * they disagree, or `null` when they agree. It belongs here rather than in a unit-test file because
- * the thing worth catching is a *composition* fault — a route table that produces params the page
+ * the thing worth catching is a *composition* fault - a route table that produces params the page
  * does not read, which type-checks cleanly (both sides are `Record<string, string>`) and renders a
  * page that never changes. No type can see that; calling `matchRoute` does.
  */
@@ -79,7 +80,7 @@ function checkGuildRouting(): string | null {
     if (m.params.guild !== '1234') bad.push(`${path} lost the guild id (params.guild=${JSON.stringify(m.params.guild)})`)
     // `pages/Guild.tsx` reads `params.page` and nothing else, so this is the only shape that works.
     if ((m.params.page ?? '') !== page.seg) {
-      bad.push(`${path} yields page=${JSON.stringify(m.params.page ?? '')} but the row's segment is ${JSON.stringify(page.seg)} — the view would not change`)
+      bad.push(`${path} yields page=${JSON.stringify(m.params.page ?? '')} but the row's segment is ${JSON.stringify(page.seg)} - the view would not change`)
     }
     try {
       metaFor(`Guild:${page.seg}`)
@@ -185,6 +186,16 @@ const cases: Case[] = [
       <HoverCardContent>Member since 2019</HoverCardContent>
     </HoverCard>
   )},
+  // A `?` badge on every field is the whole of this round's text diet, so the composition that
+  // holds it (a tooltip inside its own provider, with a `render` prop button) is rendered here.
+  // Base UI reads a trigger's own props on the server, which is enough to prove the badge exists;
+  // the sentence it reveals lives in the portal and is asserted by the marker being the text.
+  {
+    name: 'field hint',
+    popup: false,
+    marker: 'Two bursts of chatter count as one repost',
+    render: () => <FieldHint text="Two bursts of chatter count as one repost" />,
+  },
   { name: 'tabs', popup: false, marker: 'Nothing pending', render: () => (
     <Tabs value="a">
       <TabsList>
@@ -230,7 +241,7 @@ export function run(): { failures: string[]; asserted: number; unasserted: strin
     }
     if (c.marker) {
       if (!html.includes(c.marker)) {
-        failures.push(`${c.name}: rendered without "${c.marker}" — the assertion is not being reached, which is not a pass`)
+        failures.push(`${c.name}: rendered without "${c.marker}" - the assertion is not being reached, which is not a pass`)
       } else {
         asserted += 1
       }

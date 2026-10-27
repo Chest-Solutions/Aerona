@@ -12,7 +12,7 @@ const OG_TYPE = (kind: PageMeta['kind']) => (kind === 'TechArticle' || kind === 
 /** Everything that goes between `<head>` tags except the static ones in index.html.
  *
  *  Two rules the build audit enforces: an indexable page carries a canonical and a
- *  description of at least 40 characters, and a private page carries neither — a
+ *  description of at least 40 characters, and a private page carries neither - a
  *  `rel=canonical` on a `noindex` route tells a crawler "this is the preferred URL" in
  *  the same breath as "stay away", and the two are irreconcilable. `og:image:alt` is on
  *  every social page because a missing alt is the one share-preview tag that silently
@@ -44,12 +44,12 @@ export function headTags(origin: string, meta: PageMeta): string {
       `<meta property="og:image" content="${canonical(origin, '/og-image.jpg')}" />`,
       `<meta property="og:image:width" content="1200" />`,
       `<meta property="og:image:height" content="630" />`,
-      `<meta property="og:image:alt" content="${esc(meta.ogAlt ?? `${site.name} — ${site.tagline}`)}" />`,
+      `<meta property="og:image:alt" content="${esc(meta.ogAlt ?? `${site.name} - ${site.tagline}`)}" />`,
       `<meta name="twitter:card" content="summary_large_image" />`,
       `<meta name="twitter:title" content="${esc(meta.ogTitle ?? site.ogTitle)}" />`,
       `<meta name="twitter:description" content="${esc(meta.description)}" />`,
       `<meta name="twitter:image" content="${canonical(origin, '/og-image.jpg')}" />`,
-      `<meta name="twitter:image:alt" content="${esc(meta.ogAlt ?? `${site.name} — ${site.tagline}`)}" />`,
+      `<meta name="twitter:image:alt" content="${esc(meta.ogAlt ?? `${site.name} - ${site.tagline}`)}" />`,
     )
     if (meta.updated) {
       rows.push(`<meta property="article:modified_time" content="${iso(meta.updated)}" />`)

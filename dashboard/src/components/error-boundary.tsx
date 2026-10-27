@@ -5,7 +5,7 @@
  * `components/ui` wrapper mapped a menu caption onto Base UI's `Menu.GroupLabel`, that primitive
  * reads a context that only a `Menu.Group` provides, and Base UI *throws* rather than degrading.
  * One throw during render unmounted the whole page, so the operator saw "the tabs don't work" and
- * a single console line — and the minified build said only `Base UI error #31`. A self-hosted panel
+ * a single console line - and the minified build said only `Base UI error #31`. A self-hosted panel
  * must not hide that kind of fault in the console, because the person reading it is the person who
  * has to decide whether to file it, so the message goes on the page.
  *
@@ -41,7 +41,7 @@ export class ErrorBoundary extends Component<Props, State> {
           <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
             This page failed to render
           </p>
-          <h1 className="mt-2 text-lg font-medium">Aerona is still running — only this view broke</h1>
+          <h1 className="mt-2 text-lg font-medium">Aerona is still running - only this view broke</h1>
           <p className="mt-2 text-sm text-muted-foreground">
             Nothing was sent to Discord and no setting was changed by this. The text below is what to
             paste when reporting it.

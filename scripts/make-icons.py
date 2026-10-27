@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Write every copy of the Aerona mark that the product serves, from one file of art.
 
-The mark lives once, at `artwork/aerona.png` — a square white tile with the glyph centred in
+The mark lives once, at `artwork/aerona.png` - a square white tile with the glyph centred in
 it. Everything a browser or an OS actually asks for is derived from that: favicons at three
 sizes, an apple touch icon, the manifest's 192/512 pair, and a transparent version of the
 glyph alone in two inks for the panel's own header (light ink for the dark theme, dark ink for
@@ -10,7 +10,7 @@ the light one, chosen by Tailwind's `dark:` variant rather than by JavaScript).
 Why a script and not committed PNGs: an icon that is hand-made in a graphics editor is a file
 nobody can regenerate, and a product with both themes and a manifest has seven of them. One
 command, `python3 scripts/make-icons.py`, is also the only thing that keeps the *maskable*
-variant honest — a maskable icon must survive a circular crop, which is a measurement, not an
+variant honest - a maskable icon must survive a circular crop, which is a measurement, not an
 eyeball.
 
 Nothing here needs a build: `dashboard/public/` is copied verbatim by Vite, so the panel can be
@@ -60,7 +60,7 @@ def glyph_box(im: Image.Image) -> tuple[int, int, int, int]:
     mask = ImageChops.invert(gray).point(lambda p: 255 if p > 8 else 0)
     box = mask.getbbox()
     if not box:
-        sys.exit(f"{SOURCE} has no non-white pixels in it — nothing to crop")
+        sys.exit(f"{SOURCE} has no non-white pixels in it - nothing to crop")
     return box
 
 
@@ -68,7 +68,7 @@ def mark(im: Image.Image, size: int, ink: tuple[int, int, int, int]) -> Image.Im
     """Just the glyph, recoloured to a flat ink on transparency.
 
     The art is a dark silhouette on white, so the ink is a *fill*, not a tint: alpha comes from
-    how far a pixel is from the background (an inverted grey ramp — white is nothing, the glyph is
+    how far a pixel is from the background (an inverted grey ramp - white is nothing, the glyph is
     everything), and one colour is pasted through it. That is what makes the same shape read
     correctly on both themes instead of carrying a white box with it, and it is also why an
     anti-aliased edge stays smooth at 16px.

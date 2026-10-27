@@ -2,8 +2,8 @@
 
 Not a style guide for its own sake: every rule here exists because breaking it made something in
 the product lie, hang, or cost an operator their evening. The visual system is shadcn/ui on the
-`base-nova` preset — components in `dashboard/src/components/ui/`, tokens in
-`dashboard/src/index.css` — and there is no second design system in this repo to argue with.
+`base-nova` preset - components in `dashboard/src/components/ui/`, tokens in
+`dashboard/src/index.css` - and there is no second design system in this repo to argue with.
 
 ## One surface
 
@@ -46,7 +46,7 @@ is why a slow Discord makes a page say "queued" instead of failing, and why rest
 loses nothing.
 
 Per-guild bot identity goes through `PATCH /guilds/{guild.id}/members/@me` with `nick`, `bio` and
-`avatar` — legal for a bot as of 2025-09, and only for the bot's *own* member object in that server.
+`avatar` - legal for a bot as of 2025-09, and only for the bot's *own* member object in that server.
 The avatar's bytes never enter a settings document (that document is copied whole into
 `config_history` on every save); they are staged in `report:<guild>:avatar-pending`, consumed by the
 apply that uses them, and deleted. The document keeps only `avatarHash`.
@@ -54,7 +54,7 @@ apply that uses them, and deleted. The document keeps only `avatarHash`.
 ## Nothing in the panel is invented
 
 Slash commands, channels and roles come from what the worker last wrote into `guild_reports`
-(`GET /guilds/{id}/report`), so every list carries the time it was learned — "as of 4 min ago", never
+(`GET /guilds/{id}/report`), so every list carries the time it was learned - "as of 4 min ago", never
 a live count. A worker that has never reported makes the page say so and hides the buttons that
 would do nothing.
 
@@ -64,6 +64,6 @@ would do nothing.
 one `<title>`, a `noindex` on a private panel, the inline theme script, both `theme-color` values, no
 pinned dark class, no internal link that goes nowhere. `sh scripts/verify-panel.sh` then checks the
 shipped binary: the deep-link shell, the sign-in bounce per failure reason, and that every removed
-route stayed removed. On the Rust side, `cargo test --workspace` is the loop — including the pure
+route stayed removed. On the Rust side, `cargo test --workspace` is the loop - including the pure
 `gate::local_guard` and `outbox::identity_payload` tests, which is why the enforcement rules and the
 clear-versus-omit semantics can be argued with in a test file rather than in a server.

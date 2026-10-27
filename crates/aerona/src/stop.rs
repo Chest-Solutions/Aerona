@@ -1,7 +1,7 @@
 //! One stop signal, many listeners.
 //!
 //! The API has to drain, the worker has to say goodbye to Discord, and the supervisor
-//! has to stop retrying a worker that is already down — all of them on the same SIGTERM,
+//! has to stop retrying a worker that is already down - all of them on the same SIGTERM,
 //! none of them allowed to miss it because they happened to start a moment later. So this
 //! is a *latched* flag, not a notification: `stopped()` is still true after the event, and
 //! a task that begins waiting late sees it immediately.
@@ -9,7 +9,7 @@
 //! The latch is an `AtomicBool` and the wakeup is a `watch<u64>` counter that only ever
 //! increments. That split is deliberate. A `watch<bool>` looks like the same thing and is
 //! not: `send` reports the channel as closed once every receiver is gone, and a closed
-//! `watch` silently stops storing values — which for a shutdown latch means "the process
+//! `watch` silently stops storing values - which for a shutdown latch means "the process
 //! that was asked to stop never notices", discovered by whoever had to `kill -9` it.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -67,7 +67,7 @@ impl Stop {
         self.inner.stopped.load(Ordering::SeqCst)
     }
 
-    /// Resolve as soon as the latch is set — immediately, if it already is.
+    /// Resolve as soon as the latch is set - immediately, if it already is.
     pub async fn wait(&self) {
         let mut rx = self.inner.tx.subscribe();
         loop {
@@ -90,7 +90,7 @@ impl Stop {
         async move { stop.wait().await }
     }
 
-    /// `wait`, then hold for `secs` — as an owned future, so it can be handed to a
+    /// `wait`, then hold for `secs` - as an owned future, so it can be handed to a
     /// listener that keeps it across tasks. What a server needs: the latch says stop
     /// accepting, the sleep is what lets the requests already in flight finish.
     pub fn wait_drain(&self, secs: u64) -> impl std::future::Future<Output = ()> + Send + 'static {
@@ -202,7 +202,7 @@ mod tests {
     #[test]
     fn firing_is_idempotent_and_survives_dropped_waiters() {
         let stop = Stop::new();
-        // Nobody is listening when the signal arrives — the case a `watch<bool>` alone
+        // Nobody is listening when the signal arrives - the case a `watch<bool>` alone
         // gets wrong, because a channel with no receivers reports "closed" and stops
         // storing what you send to it.
         stop.fire();

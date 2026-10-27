@@ -1,7 +1,7 @@
 /**
  * Anti-raid: notice what a join flood looks like, and one button that shuts the door.
  *
- * The lockdown button is not a preset — it is the same outbox path the detector uses, so a
+ * The lockdown button is not a preset - it is the same outbox path the detector uses, so a
  * manual freeze survives a restart and shows up in the audit trail like any other action.
  */
 import { useState } from 'react'
@@ -25,7 +25,7 @@ export default function Raid() {
   const { id, data, reload } = useGuild()
   const live = useAsync((signal) => raidEvents(id), [id])
   const events = (live.data?.events ?? []) as RaidEvent[]
-  // Either "the detector is still in a raid" or "the operator froze it" — both mean the
+  // Either "the detector is still in a raid" or "the operator froze it" - both mean the
   // same thing to a person reading this page, so they are one flag here.
   const running = (live.data?.active ?? null) as RaidEvent | null
   const active = running !== null || Boolean(data?.raid?.active)
@@ -50,7 +50,6 @@ export default function Raid() {
     <div className="grid gap-5">
       <PageHeader
         title="Anti-raid"
-        hint="Join bursts, message floods, and a freeze you can apply in one click."
         actions={active ? <Badge variant="destructive">raid mode on</Badge> : <Badge variant="outline">calm</Badge>}
       />
 
@@ -117,7 +116,6 @@ export default function Raid() {
         feature="anti_raid"
         title="Who gets caught"
         icon={UserRoundSearch}
-        description="Loose enough for a normal launch day, tight enough that a raid does not fit."
         fields={[
           { kind: 'int', key: 'account_max_age_days', label: 'Flag accounts younger than', hint: '0 switches it off. Discord gives every account a creation date.', min: 0, max: 365, suffix: 'days' },
           { kind: 'int', key: 'per_user_msgs_per_sec', label: 'Or a member sending faster than', hint: 'Per second, rounded up. 0 ignores rate.', min: 0, max: 20 },

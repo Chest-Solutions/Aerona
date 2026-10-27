@@ -58,7 +58,7 @@ fn version_and_help_answer_without_any_configuration() {
 #[test]
 fn a_missing_token_is_named_and_not_guessed() {
     // The other half of the contract: with no `.env` and no token, `run` must fail *now*,
-    // loudly, with the key name in it — not bind the port and then die on the worker.
+    // loudly, with the key name in it - not bind the port and then die on the worker.
     let dir = std::env::temp_dir().join(format!("aerona-cli-test-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let out = run(&["check"], &dir);

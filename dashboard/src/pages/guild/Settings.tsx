@@ -129,7 +129,7 @@ export default function Settings() {
 }
 
 /** A row of the drawer is only worth reading if it says what moved, so the newest row names
- *  the keys that differ from the one under it — and "first write" when there is nothing to
+ *  the keys that differ from the one under it - and "first write" when there is nothing to
  *  compare against. */
 function changed(index: number, rows: HistoryRow[]): string {
   const now = rows[index]?.after

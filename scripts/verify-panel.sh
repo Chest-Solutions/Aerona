@@ -70,7 +70,7 @@ hasnt() { # label  needle  haystack
 }
 
 start() { # $@: extra .env lines, one assignment per argument (may be empty)
-  stop 2>/dev/null || true
+  stop || { echo "could not free port $PORT"; exit 2; }
   rm -rf "$D"
   mkdir -p "$D"
   cp "$BIN" "$D/aerona" || { echo "no binary at $BIN - run: sh scripts/build-static.sh"; exit 2; }
@@ -88,7 +88,14 @@ start() { # $@: extra .env lines, one assignment per argument (may be empty)
   # setsid: its own session, so the harness result cannot depend on whether the calling
   # shell is still around. (Started with `( ... & )` the server was reaped mid-run and every
   # assertion below it failed with ECONNRESET, which reads exactly like a product bug.)
-  ( cd "$D" && setsid nohup ./aerona run > srv.log 2>&1 < /dev/null & echo "$!" > "$D/pid" )
+  #
+  # The pid has to be the *server's*, which `setsid` makes awkward: `$!` named the `setsid`, which
+  # exits the moment it forks, so `stop` killed nothing and the next phase found its own port taken.
+  # Writing the pid from inside the new session fixes that, and the trailing `&` on the outer
+  # subshell is what keeps it a fix rather than a hang: backgrounded, `setsid` is already a group
+  # leader, so it forks and the subshell returns. Without that `&` the harness waits on the server
+  # forever, which is the one failure mode worse than a leaked process.
+  ( cd "$D" && setsid nohup sh -c "./aerona run > srv.log 2>&1 < /dev/null & echo \$! > '$D/pid'; wait" & )
   i=0
   while [ "$i" -lt 60 ]; do
     grep -qa "aerona-api listening" "$D/srv.log" && break
@@ -108,6 +115,23 @@ stop() {
     kill -9 "$(cat "$D/pid")" 2>/dev/null || true
     rm -f "$D/pid"
   fi
+  # Then make sure the port is really free, and say so instead of timing out somewhere below it.
+  # A harness that fails with "Address in use" reads like the product cannot bind, which is a lie
+  # about the wrong thing: this is the script's own leftover.
+  i=0
+  while [ "$i" -lt 40 ] && command -v ss >/dev/null 2>&1; do
+    holder=$(ss -ltnp 2>/dev/null | awk -v pat=":$PORT " '
+      index($0, pat) { if (match($0, /pid=[0-9]+/)) { print substr($0, RSTART + 4, RLENGTH - 4); exit } }')
+    [ -z "$holder" ] && break
+    [ "$i" -eq 20 ] && kill -9 "$holder" 2>/dev/null || true
+    i=$((i + 1))
+    sleep 0.25
+  done
+  if [ "$i" -ge 40 ]; then
+    printf 'port %s is still held after the server was stopped; the next bind would fail\n' "$PORT"
+    return 1
+  fi
+  return 0
 }
 trap 'stop' EXIT INT TERM
 
@@ -150,7 +174,7 @@ has "  ...and the root *is* the dashboard, not a landing page" '<title>Aerona da
 hasnt "  ...so there is no marketing hero in the first byte" 'op-hero' "$doc"
 has "  ...and it is the panel frame, not a page about the panel" 'id="main"' "$doc"
 hasnt "no inline body background (it would pin a reader who chose the other theme)" 'style="background-color' "$doc"
-# The theme is one class on <html>, decided before the stylesheet paints — by a *file*, because
+# The theme is one class on <html>, decided before the stylesheet paints - by a *file*, because
 # this document's CSP is `script-src 'self'` with no hashes: an inline block is refused by the
 # browser and the console says so, which is the failure the previous version of this check
 # celebrated (it asserted the bootstrap was inline, and the CSP it was served under made that
@@ -180,12 +204,12 @@ heads=$(hdrs /)
 hasnt "CSP does not force an https upgrade on a plain-http install" 'upgrade-insecure-requests' "$heads"
 # Two header hygiene rules that only show up in the browser, so the response is the only place to
 # look. (a) `Permissions-Policy` names a feature the browser does not implement and Chrome prints
-# `Unrecognized feature '…' in 'Permissions-Policy' header` once per page load per name — so the
+# `Unrecognized feature '…' in 'Permissions-Policy' header` once per page load per name - so the
 # retired ones are checked *out*. (b) `Cross-Origin-Opener-Policy` is ignored on a non-secure
 # origin, and the browser logs that it is ignoring it; this panel is http by default, so the
 # header would be noise and the noise is what the operator reports as "the panel is broken".
-# The two features the user saw in *their* console that this repo never sent —
-# `attribution-reporting`, `private-aggregation` — come from whatever sits in front of the
+# The two features the user saw in *their* console that this repo never sent -
+# `attribution-reporting`, `private-aggregation` - come from whatever sits in front of the
 # install. There is nothing here for a test to fix.
 policy=$(printf '%s\n' "$heads" | sed -n 's/^permissions-policy: //p')
 for retired in document-domain sync-xhr ambient-light-sensor battery navigation-override execution-while interest-cohort; do
@@ -205,7 +229,7 @@ hasnt "  ...and publishes no urls to index" '<url>' "$(cat "$D/body")"
 # that the list is a route rather than a redirect out of a landing page.
 has "the root is titled as the product, not as a page about it" '<title>Aerona dashboard</title>' "$doc"
 has "  ...and tells robots to stay away" 'name="robots" content="noindex"' "$doc"
-# A guild page has no file — its URL carries a server id — so the static layer has to own the
+# A guild page has no file - its URL carries a server id - so the static layer has to own the
 # prefix. A 404 on a refresh is a deep link that does not work, and the sign-in return target
 # is exactly such a link: this is the one check that keeps `/guild/<id>/<page>/` shareable.
 req 200 "GET /guild/<id>/moderation/ serves the app shell" GET /guild/123456789012345678/moderation/ "Host: $NAME:$PORT"
@@ -215,12 +239,12 @@ has "  ...titled for the panel" 'Aerona dashboard' "$shell"
 # The assertion that keeps this round's fix honest. `index.html` is the *prerendered* server list,
 # so serving it for a guild URL hands React the wrong document to hydrate: the page recovers by
 # discarding the HTML, and the operator's console says `Hydration failed ... #418` on every deep
-# link. A shell has no prerendered content in it at all — which is what `main.tsx` looks for to
+# link. A shell has no prerendered content in it at all - which is what `main.tsx` looks for to
 # decide between mounting and hydrating.
 hasnt "  ...and none of the root page's markup (a prerendered body here is a hydration mismatch)" 'id="main"' "$shell"
 has "  ...linked theme bootstrap, or a refresh flashes the wrong palette" 'src="/theme-boot.js"' "$shell"
 req 200 "GET /access/ (the install-level page)" GET /access/ "Host: $NAME:$PORT"
-has "  ...is the access page, prerendered with its own title" 'Access — Aerona dashboard' "$(cat "$D/body")"
+has "  ...is the access page, prerendered with its own title" 'Access - Aerona dashboard' "$(cat "$D/body")"
 # Every route the panel used to keep at the root is gone, and the deleted theme files with
 # them. A 200 on any of these means a route table that grew back, or a build artefact
 # somebody left in `public/`.
@@ -233,7 +257,7 @@ if [ -n "$asset" ]; then
   req 200 "GET $asset (hashed entry point)" GET "$asset" "Host: $NAME:$PORT"
   # Cache lifetime is a deploy contract, not a performance knob. A name containing a build digest
   # can be pinned forever *because* its content cannot change without the URL changing; a root
-  # file keeps its name when it is replaced. The old rule — "any 200 that is not HTML" — pinned the
+  # file keeps its name when it is replaced. The old rule - "any 200 that is not HTML" - pinned the
   # favicon, the manifest and the theme bootstrap for a year, which reads to whoever deploys the
   # next build as "my change did not take". So the split is asserted on live headers.
   h=$(hdrs "$asset")
@@ -247,10 +271,20 @@ if [ -n "$asset" ]; then
 else
   skip "GET the hashed entry point" "no /assets/index-*.js reference in the document"
 fi
+# And the failure an operator actually reports: the browser says "Unable to preload CSS for
+# http://host:port/assets/x.css" and stops there - a console line with no server-side trace, and no
+# hint whether the file is missing, misnamed or refused. Three things make it readable: a real 404 (not
+# the SPA shell at 200, which is how an app usually hides a broken build), nothing cacheable about that
+# 404 (or a fixed deploy stays shadowed by a cached failure), and one warn line naming the file and the
+# root it was looked for in.
+miss=$($CURL -o "$D/miss" -w '%{http_code}' -H "Host: $NAME:$PORT" "$BASE/assets/does-not-exist-00000000.css")
+check "a missing asset answers 404, not the shell at 200" "$miss" "404"
+hasnt "  ...and the miss is nothing a cache may keep" 'immutable' "$(hdrs /assets/does-not-exist-00000000.css)"
+has "  ...while the log names the file and the root it was sought in" 'an asset named by the bundle is not in the static root' "$(cat "$D/srv.log")"
 # The two contracts a passing build does not guarantee, because in both cases the thing that has to
 # be true is a *string* in the shipped bundle: `/guild/<id>/<page>/` must be captured as a param (a
 # literal segment matches the URL, puts nothing in `params`, and every sidebar tab re-renders the
-# overview — which is the report this repo got twice), and the settings keys must be the model's
+# overview - which is the report this repo got twice), and the settings keys must be the model's
 # (83 of them shipped camelCase, so every save was a 400 naming a key nobody had read). Read from
 # `$DIST`, not from one HTTP response: the pages are lazy chunks, and an entry-chunk-only grep would
 # "pass" for a bundle whose feature chunks were left behind.
@@ -271,8 +305,8 @@ fi
 for revalidate in /theme-boot.js /favicon-48.png /site.webmanifest /; do
   hasnt "  $revalidate is not pinned: a replaced copy must show up on reload" 'max-age=31536000' "$(hdrs "$revalidate")"
 done
-# The brand is one art file and a generator — `artwork/aerona.png` through `scripts/make-icons.py`
-# into `public/` — and both of its failure modes are silent: a document still pointing at the old
+# The brand is one art file and a generator - `artwork/aerona.png` through `scripts/make-icons.py`
+# into `public/` - and both of its failure modes are silent: a document still pointing at the old
 # `favicon.svg`, and a mark whose ink vanished because the source's white field became the shape.
 # Sizes are checked by presence, since a 200 with a truncated file is what a bad pipeline leaves.
 for icon in /favicon-16.png /favicon-32.png /favicon-48.png /apple-touch-icon.png /aerona-192.png /aerona-512.png /aerona-maskable-512.png; do
@@ -318,7 +352,10 @@ hasnt "  ...and does not reflect the request's host as a redirect uri" '"redirec
 # The panel's chrome has to be in the shipped stylesheet, not only in the source tree. The
 # name comes from the build on disk: $doc is the first response body and four requests have
 # landed on $D/body since, so the request below is what proves the server has the file.
-sheet=$(grep -ho '/assets/index-[A-Za-z0-9_-]*[.]css' "$DIST/index.html" | head -1)
+# Any name is fine: with the build told to keep css together the bundle is `style-<hash>.css` rather
+# than `index-<hash>.css`, and the contract is "the document links a stylesheet the server has", not
+# the letter of one vite chunk-naming choice.
+sheet=$(grep -ho '/assets/[A-Za-z0-9._~-]*[.]css' "$DIST/index.html" | head -1)
 if [ -n "$sheet" ]; then
   req 200 "GET $sheet (the built stylesheet)" GET "$sheet" "Host: $NAME:$PORT"
   css=$(cat "$D/body")
@@ -329,7 +366,7 @@ if [ -n "$sheet" ]; then
   hasnt "  ...and nothing left of the removed palette" '--sx-' "$css"
   hasnt "  ...or of the removed rail classes" '.op-rail' "$css"
 else
-  skip "GET the built stylesheet" "no /assets/index-*.css reference in the document"
+  skip "GET the built stylesheet" "the document links no stylesheet - that is the whole of the panel's paint"
 fi
 loc=$(location "$NAME:$PORT" -H "Origin: $NAMEORIGIN")
 has "Discord sign-in bounces to /login instead of guessing an origin" 'origin-unset' "$loc"
@@ -360,7 +397,7 @@ case "$statev" in
 esac
 hasnt "redirect_uri never says localhost when the browser dialled an IP" 'localhost' "$loc"
 # The gate that replaces the credential: the pairing route is gone from the router, not
-# hidden behind a page. A 404 here is the assertion — a 405 would mean the path is still
+# hidden behind a page. A 404 here is the assertion - a 405 would mean the path is still
 # mounted for another verb, and a 401 would mean it is mounted and simply wants a code.
 code=$($CURL -o /dev/null -w '%{http_code}' --max-time 10 -X POST -H "Host: 127.0.0.1:$PORT" \
   -H "Origin: $IPORIGIN" -H 'content-type: application/json' -d '{"code":"not-a-real-code"}' \
@@ -371,12 +408,78 @@ check "POST /api/v1/pair is not mounted any more" "$code" "404"
 # re-added the route; a 500 would mean the fallback stopped being a fallback.
 code=$($CURL -o /dev/null -w '%{http_code}' --max-time 10 -H "Host: 127.0.0.1:$PORT" "$BASE/pair/")
 check "GET /pair/ is not a page any more" "$code" "404"
+
+# The three routes this round added. They are mounted *and* private: a 404 here would mean the
+# dashboard is calling something the binary does not have - which is how an earlier round shipped a
+# panel whose Save button posted to a path that existed only in the source.
+for one in "PUT /api/v1/guilds/1/identity/banner" "DELETE /api/v1/guilds/1/identity/banner" "PUT /api/v1/guilds/1/identity/deco"; do
+  m=${one%% *}; path=${one#* }
+  req 401 "$m $path answers 401 with no session" "$m" "$path" "Host: $NAME:$PORT"
+done
+
+# Round 14's three routes, over HTTP, in the phase that still has a server: mounted, documented, and
+# private. A 404 here means the shipped binary and the shipped panel disagree about a path, which is
+# the failure a source-only check cannot see.
+for p in "/api/v1/manifest" "/api/v1/guilds/1/capes" "/api/v1/guilds/1/capes/mw1/frame/0"; do
+  code=$($CURL -o "$D/capebody" -w '%{http_code}' --max-time 10 -H "Host: $NAME:$PORT" "$BASE$p")
+  case "$p" in
+    */manifest) check "GET $p answers for a cape notifier install" "$code" "200" ;;
+    *) check "GET $p needs a session" "$code" "401" ;;
+  esac
+done
+req 200 "the manifest lists the cape routes" GET /api/v1/manifest "Host: $NAME:$PORT"
+cape_manifest=$(cat "$D/body")
+has "  ...the list the panel reads" "/guilds/{guild}/capes" "$cape_manifest"
+
+# Round 15's route, over HTTP for the same reason: a transcript that opens inline is the fix for
+# "transcript htmls don't work", and the fix is only real if the shipped binary answers on the path the
+# shipped panel calls. Both halves are private - a public URL for a moderator's ticket channel is not
+# something anyone asked for - and the download variant is a header on the same handler, so a 404 on the
+# plain path would mean the inline half was never mounted either.
+for p in "/api/v1/guilds/1/tickets/1/transcript" "/api/v1/guilds/1/tickets/1/transcript?download=1"; do
+  code=$($CURL -o "$D/tx" -w '%{http_code}' --max-time 10 -H "Host: $NAME:$PORT" "$BASE$p")
+  check "GET $p needs a session, and exists" "$code" "401"
+done
+req 200 "the manifest lists the transcript route" GET /api/v1/manifest "Host: $NAME:$PORT"
+has "  ...as the path the panel builds" "/guilds/{guild}/tickets/{id}/transcript" "$(cat "$D/body")"
+has "  ...the ask that makes the worker look again" "/guilds/{guild}/capes/check" "$cape_manifest"
+has "  ...and the render, served by the api from what the worker stored" "capes/{slug}/frame/{frame}" "$cape_manifest"
+# C.2 - what the manifest promises, and what the cache headers promise about the files it names.
+# (These two lines were the first thing the panel's `no such endpoint` fix needed a guard for, and
+# the caching half is the one an operator only notices as a stale banner a week later.)
+has "the manifest lists the routes the panel calls" '"/guilds/{guild}/identity/banner"' "$cape_manifest"
+# `main.py check` is what an operator runs when the site looks half-broken, so the question "does
+# every asset the bundle names actually exist on disk" has to be part of it: a stylesheet that 404s
+# leaves a console line in the visitor's browser and nothing at all in the server's.
+has "the launcher checks the assets the dashboard html names" "referenced_assets" "$(cat "$ROOT/main.py")"
+has "  ...and says which one is missing" "the html names are MISSING" "$(cat "$ROOT/main.py")"
+hasnt "  ...nothing in the manifest-era folders promises a year for an unhashed name" 'immutable' "$(hdrs /assets/brand/logo.png)"
+hasnt "  ...and the api manifest is not what the page loads" '/api/v1/manifest' "$(cat "$ROOT/dashboard/dist/index.html")"
+# The pin in `static_hit` comes from `is_fingerprinted`, which must be narrow in both directions: a
+# name in /assets whose suffix is not a digest still gets revalidated, or one refactor that moves an
+# editable file under /assets makes it un-refreshable for a year.
+hasnt "a dated but unhashed name under /assets is not pinned either" 'immutable' "$(hdrs /assets/brand/panels-20240101.js)"
+# The other direction, on a name from this very build. A rule that is too wide breaks a week later;
+# a rule that is too narrow breaks on the next commit, because a hash is random: vite's digest is
+# url-safe base64, so `_` and `-` land in it as often as letters do, and an alphanumeric-only test
+# silently unpinned `/assets/index-B0IWrOJ_.js` while every test name in the file still passed.
+assets=$(cd "$DIST/assets" 2>/dev/null && ls | grep -E -- '-[A-Za-z0-9_-]{8,}\.(js|css)$')
+# Prefer a name whose digest itself holds a `_` or a second `-`: that is the case a rule too narrow
+# drops, and taking the alphabetically first asset would keep the check passing on a build whose hashes
+# happened to come out alphanumeric.
+hashed=$(printf '%s\n' "$assets" | grep -E -- '_[A-Za-z0-9_-]*\.[a-z]+$|-[A-Za-z0-9_-]*-[A-Za-z0-9_-]*\.[a-z]+$' | head -1)
+[ -n "$hashed" ] || hashed=$(printf '%s\n' "$assets" | head -1)
+if [ -n "$hashed" ]; then
+  has "  ...while this build's hashed asset does promise a year" 'immutable' "$(hdrs "/assets/$hashed")"
+else
+  skip "  ...while this build's hashed asset does promise a year" "no hashed js/css in $DIST/assets"
+fi
 # The legacy callback stays reachable on purpose: an install whose portal entry was written
 # before the move must not have to be re-registered to sign in. It forwards the query, because
 # the `code` and `state` Discord just sent are the whole request.
 code=$($CURL -o /dev/null -w '%{http_code}' --max-time 10 -H "Host: 127.0.0.1:$PORT" \
   "$BASE/api/v1/auth/discord/callback?code=abc&state=def")
-# `Redirect::permanent` is a 308 — the method is kept, so a POST to the old path is forwarded
+# `Redirect::permanent` is a 308 - the method is kept, so a POST to the old path is forwarded
 # as a POST rather than silently turned into a GET.
 check "the legacy callback path forwards instead of failing" "$code" "308"
 onehop=$($CURL -s -o /dev/null -w '%{redirect_url}' --max-time 10 -H "Host: 127.0.0.1:$PORT" \
@@ -415,19 +518,19 @@ code=$(cd "$D" && ./aerona pair >/dev/null 2>&1; printf '%s' "$?")
 check "aerona pair exits non-zero" "$code" "2"
 has "  ...and says what the words meant" 'unknown command' "$out"
 if [ -f "$D/data/pair-code" ]; then
-  no "no pairing code file is written" "data/pair-code exists — something is still minting codes"
+  no "no pairing code file is written" "data/pair-code exists - something is still minting codes"
 else
   ok "no pairing code file is written"
 fi
 # Cookie attributes on a real session (HttpOnly, SameSite=Lax, no `Secure` over plain http) are
 # asserted in `crates/aerona-api/src/auth.rs`, which mints a session through the same
-# `create_session` path the login uses — this harness cannot get one, which is the point.
+# `create_session` path the login uses - this harness cannot get one, which is the point.
 stop
 
 printf '\n== a pinned redirect uri (AERONA_OAUTH_REDIRECT_URI beats the request host)\n'
 # Discord matches `redirect_uri` character for character against the application's list, and
 # its rejection page never reaches this install. So the value must be the operator's own
-# string, byte for byte, on *both* halves of the flow — and a request that arrives by a
+# string, byte for byte, on *both* halves of the flow - and a request that arrives by a
 # different name must not be able to steer it.
 start "AERONA_BASE_URL=$NAMEORIGIN" "AERONA_OAUTH_REDIRECT_URI=http://$NAME:$PORT/auth/callback"
 req 200 "GET /api/v1/status with an OAuth application configured" GET /api/v1/status "Host: $NAME:$PORT"
@@ -456,6 +559,221 @@ has "  ...to the page, with the reason as a token" "/login/?error=expired-link" 
 hasnt "  ...and a 404 is never what the browser sees" '404' "$cbloc"
 req 200 "  ...and the bounce target is a real page" GET "/login/?error=expired-link" "Host: $NAME:$PORT"
 stop
+
+# ------------------------------------------------- what the panel must and must not contain
+# These are grep assertions rather than a rendered-page check because they are about code the
+# browser cannot see: which endpoint a page calls, whether a switch drives anything, and whether
+# two crates still disagree about how a transcript is built. Every one of them was true of a build
+# this project shipped while a user could not get the feature to work, which is the failure mode
+# worth scripting.
+src() { cat "$ROOT/dashboard/src/$1" 2>/dev/null; }
+api="$ROOT/crates/aerona-api/src/routes/guild.rs"
+logger="$ROOT/crates/aerona-bot/src/logger.rs"
+
+dashes=$(grep -rho '—' "$ROOT/dashboard/src/pages" "$ROOT/dashboard/src/lib" "$ROOT/dashboard/src/components" 2>/dev/null | wc -l | tr -d ' ')
+has "no em dash anywhere in the panel copy" "0" "$dashes"
+
+hasnt "the logging page has no master switch" "key: 'enabled'" "$(src pages/guild/Logs.tsx)"
+has "the logging page reads the log the bot writes" "/log?limit=" "$(src lib/api.ts)"
+has "a picker can be refreshed on demand" "picker-refresh" "$(src lib/api.ts)"
+has "channels are shown with the # they have in Discord" '`#${o.name}`' "$(src lib/settings-form.tsx)"
+has "roles are shown in their own colour" "iconUrl" "$(src lib/settings-form.tsx)"
+has "a role a human cannot be given is not offered" "assignable !== false" "$(src lib/settings-form.tsx)"
+has "a sticky is written here, text and embed and all" "embed_title" "$(src pages/guild/Stickies.tsx)"
+has "  ...in the channel it will live in, by name" "Refresh channels" "$(src pages/guild/Stickies.tsx)"
+hasnt "a sticky does not need a Discord message to exist" "messageChoices" "$(src pages/guild/Stickies.tsx)"
+hasnt "a sticky never asks for a typed id" "label in the list" "$(src pages/guild/Stickies.tsx)"
+has "the write that posts a sticky at once" "sticky.post" "$(cat "$api")"
+has "  ...and a note keeps the lines it was written with" "opt_block_field" "$(cat "$api")"
+hasnt "the avatar stage does not invent a key" "\"avatarHash\"" "$(cat "$api")"
+has "  ...it writes the field the model has" "\"avatar_hash\"" "$(cat "$api")"
+has "a ticket type is a button, so adding one queues it" "panel.post" "$(cat "$api")"
+has "  ...and removing one redraws the board" "panel.redraw" "$(cat "$api")"
+has "the types are edited on the page that shows the board" "Ticket types" "$(src pages/guild/Tickets.tsx)"
+has "  ...one row per button, with its colour" "t.color" "$(src pages/guild/Tickets.tsx)"
+has "  ...and the links under the card" "Link buttons" "$(src pages/guild/Tickets.tsx)"
+has "a log row shows what a thing was" "'Before', 'After'" "$(src pages/guild/Logs.tsx)"
+has "  ...and what it is now, in the card the channel gets" "fn quote" "$(cat "$logger")"
+has "the rail wears the server's own icon" "current={{ id, name, icon, botPresent: present }}" "$(src pages/Guild.tsx)"
+hasnt "a field's explanation is not printed under it forever" '<p className="text-[12px]' "$(src lib/settings-form.tsx)"
+has "  ...it is a badge that asks to be read" "export function FieldHint" "$(src lib/settings-form.tsx)"
+has "the ticket card is editable" "open_title" "$(src pages/guild/Tickets.tsx)"
+has "  ...including what the close says" "close_body" "$(src pages/guild/Tickets.tsx)"
+has "  ...and its colour" "embed_color" "$(src pages/guild/Tickets.tsx)"
+has "html transcripts are offered as a format" "HTML, with images" "$(src pages/guild/Tickets.tsx)"
+hasnt "moderation has no switch that drives nothing" "dm_reason" "$(src pages/guild/Moderation.tsx)"
+
+# one renderer, in one crate. The API used to carry its own copy of the transcript builder with a
+# different header, so the panel and the bot disagreed about what a transcript said.
+has "core builds transcripts" "pub fn render" "$(cat "$ROOT/crates/aerona-core/src/transcript.rs" 2>/dev/null)"
+hasnt "the API does not build them a second time" "fn render_transcript" "$(cat "$ROOT/crates/aerona-api/src/routes/guild.rs" 2>/dev/null)"
+has "  ...and the bot delegates to core" "aerona_core::transcript::render" "$(cat "$ROOT/crates/aerona-bot/src/events.rs" 2>/dev/null)"
+has "the refresh the panel asks for is the one the bot serves" "picker.refresh" "$(cat "$ROOT/crates/aerona-bot/src/outbox.rs" 2>/dev/null)"
+
+# the switch list on the logging page and the list the logger emits must be the same set, or a
+# toggle exists for an event that can never happen
+panel_events=$(grep -o "^  \['[a-z_]*'," "$ROOT/dashboard/src/pages/guild/Logs.tsx" | tr -d " '[" | sed 's/,$//' | sort | tr '\n' ' ')
+core_events=$(sed -n '/pub const LOG_EVENTS/,/];/p' "$ROOT/crates/aerona-core/src/models.rs" | grep -o '"[a-z_]*"' | tr -d '"' | grep -v '^LOG_EVENTS$' | sort | tr '\n' ' ')
+if [ "$panel_events" = "$core_events" ]; then
+  ok "the logging page offers exactly the events the logger emits"
+else
+  no "the logging page offers exactly the events the logger emits" "panel: $panel_events | core: $core_events"
+fi
+
+# ---------------------------------------------------------------- round 13, by report
+# Five bugs and features from one user's list. Each line below is the smallest thing that would have
+# told us the report was still true: the switch that should not exist, the field that should, the
+# colour that should reach Discord, and the lookup an empty log row came from.
+hasnt "the sticky page has no repost switch any more" "key: 'repost'" "$(src pages/guild/Stickies.tsx)"
+has "the sticky page says the copy is replaced, not edited" "sends a fresh copy and" "$(src pages/guild/Stickies.tsx)"
+has "the API retires an old document's key instead of refusing it" "RETIRED_KEYS" "$(cat "$ROOT/crates/aerona-api/src/routes/mod.rs")"
+has "the tickets page names where the board goes" "board_channel_id" "$(src pages/guild/Tickets.tsx)"
+has "  ...and saving queues a redraw of it" '"panel.redraw"' "$(cat "$ROOT/crates/aerona-api/src/routes/system.rs")"
+has "  ...while a type with no channel inherits it" "board_channel_id" "$(cat "$ROOT/crates/aerona-api/src/routes/guild.rs")"
+has "a colour on its own makes a card" "self.embed_color.is_some()" "$(cat "$ROOT/crates/aerona-core/src/models.rs")"
+has "the preview is Discord's own renderer, not a drawing of one" "@discord-message-components/react" "$(src pages/guild/shared.tsx)"
+has "  ...with its stylesheet, or the preview is unstyled markup" "react/styles" "$(src pages/guild/shared.tsx)"
+has "  ...and the props this panel uses are declared, not assumed" "declare module '@discord-message-components/react'" "$(cat "$ROOT/dashboard/src/types/discord-message-components.d.ts" 2>/dev/null)"
+has "the stylesheet the preview needs is in the built assets" 'discord-messages' "$(cat "$ROOT"/dashboard/dist/assets/*.css 2>/dev/null | head -c 400000)"
+# How the panel is *loaded*, which is the part that broke on somebody's install. With the default
+# `cssCodeSplit`, every lazily imported chunk gets its own `assets/<chunk>-<hash>.css` and the router
+# fetches it through a preload helper at route-change time; one lost 13 KB file then costs a guild page
+# its styling, with a single console line as the evidence. One stylesheet, linked by the document, is
+# fetched by the browser's own loader and cannot half-fail.
+css_count=$(ls "$DIST/assets"/*.css 2>/dev/null | wc -l | tr -d ' ')
+check "the build emits exactly one stylesheet" "$css_count" "1"
+css_refs=$(grep -lEo 'assets/[A-Za-z0-9._~-]+\.css' "$DIST/assets"/*.js 2>/dev/null | wc -l | tr -d ' ')
+check "  ...and no chunk reaches for another one" "$css_refs" "0"
+has "  ...the document links it" 'rel="stylesheet"' "$(cat "$DIST/index.html")"
+has "  ...and so does the app shell for deep links" 'rel="stylesheet"' "$(cat "$DIST/shell.html")"
+# Counted as its own statement rather than searched as a substring: commenting the option out leaves
+# the text `cssCodeSplit: false` in the file inside a `//`, which is how the first version of this
+# check stayed green against a build that had stopped doing what it claims.
+css_on=$(grep -cE '^[[:space:]]*cssCodeSplit: false[[:space:]]*,?$' "$ROOT/dashboard/vite.config.ts")
+check "  ...because the build says so, on a line that is not a comment" "$css_on" "1"
+has "the profile page can write a banner" "identity/banner" "$(src lib/api.ts)"
+has "  ...and ask for a decoration by id" "identity/deco" "$(src lib/api.ts)"
+has "the apply sends account fields to the account route" "Route::UserMe" "$(cat "$ROOT/crates/aerona-bot/src/outbox.rs")"
+has "  ...and guild ones to the member route" "Route::GuildMemberMe" "$(cat "$ROOT/crates/aerona-bot/src/outbox.rs")"
+hasnt "no card is nailed to blurple in the worker" ".color(0x58_65_F2)" "$(cat "$ROOT/crates/aerona-bot/src/outbox.rs")"
+has "a reply card wears the colour the tickets settings chose" "embed_color" "$(cat "$ROOT/crates/aerona-bot/src/outbox.rs")"
+has "an event with no guild in it still finds one" "payload.or(from_channel)" "$(cat "$ROOT/crates/aerona-bot/src/events.rs")"
+has "a delete quotes what the bot kept when the message arrived" "recalled_message" "$(cat "$ROOT/crates/aerona-bot/src/events.rs")"
+has "  ...and an edit is logged from the text it was given" "fn edit_entry" "$(cat "$ROOT/crates/aerona-bot/src/events.rs")"
+has "the picker reports the decorations this server wears" "decoration_rows" "$(cat "$ROOT/crates/aerona-bot/src/tasks.rs")"
+
+# ---------------------------------------------------------------- round 14, the cape notifier
+# A feature with an outside source and a picture of its own, so the checks are about the two ways it
+# could quietly become nothing: a route that is not there (asserted over HTTP, in the phase above),
+# and a fetch that happens in the wrong process (asserted here, by the file it must not appear in).
+CAPE_CORE="$ROOT/crates/aerona-core/src/cape.rs"
+CAPE_DB="$ROOT/crates/aerona-core/src/db/capes.rs"
+CAPE_BOT="$ROOT/crates/aerona-bot/src/capes.rs"
+CAPE_API="$ROOT/crates/aerona-api/src/routes/guild.rs"
+CAPE_BOT_BODY=$(cat "$ROOT/crates/aerona-bot/src/capes.rs")
+
+
+# The whole split of this product in one `hasnt`: the api writes intent and never reaches out. A
+# settings page that fetched minecraft.wiki would be a fetch tool on the public port, and it would
+# fail on the wiki's outages rather than on the setting's.
+hasnt "the api never fetches a cape itself" "reqwest" "$(cat "$CAPE_API")"
+has "  ...the panel asks, in words" "cape.check" "$(cat "$CAPE_API")"
+has "  ...and the picture url is the server's, not one the page guesses" "frameUrl" "$(cat "$CAPE_API")"
+has "  ...served from the stored bytes" "cape_render" "$(cat "$CAPE_API")"
+
+has "one poll reads the whole category, not the ten the api defaults to" "gcmlimit=500" "$(cat "$CAPE_CORE")"
+has "  ...and the file list is a second call, because the generator drops prop=images" "prop=images" "$(cat "$CAPE_CORE")"
+has "the source is the wiki, because Mojang publishes no cape list" "Mojang does not publish a cape list" "$(cat "$CAPE_CORE")"
+# How the artwork is found, which is the part a fixture cannot answer for: measured on the live
+# category, `prop=images` lists nothing for 56 of 60 cape pages, so the names the wiki's own naming
+# implies are asked about directly, in chunks under its fifty-title cap, and a MediaWiki error object
+# is treated as an error rather than as "no capes".
+has "the artwork is asked for by name, because a page usually lists no images" "pub fn wanted_files" "$(cat "$CAPE_CORE")"
+has "  ...and what a page does list is filtered to that cape's files" "pub fn about_page" "$(cat "$CAPE_CORE")"
+has "  ...in chunks, because past fifty titles the api answers an error" "names.chunks(40)" "$CAPE_BOT_BODY"
+has "  ...and an error object is never read as an empty answer" "the wiki said" "$(cat "$CAPE_BOT")"
+has "there is a live check of the source, kept off by default" "needs the network" "$(cat "$ROOT/crates/aerona-bot/tests/live_cape_wire.rs")"
+has "the render is drawn here, from the flat texture" "pub fn render_frames" "$(cat "$CAPE_CORE")"
+has "  ...at four angles, one of which is the hero" "pub const YAWS" "$(cat "$CAPE_CORE")"
+has "the frame that reads as cloth is the one the message carries" "pub const HERO_FRAME" "$(cat "$CAPE_CORE")"
+
+has "a cape is announced once per server, ever" "ON CONFLICT (guild_id, slug) DO NOTHING" "$(cat "$CAPE_DB")"
+has "  ...and a first look records everything it finds in silence" "silent" "$(cat "$CAPE_DB")"
+has "  ...while a page edited later is refreshed without a second ping" "pub fn refresh_cape" "$(cat "$CAPE_DB")"
+has "the trickle is capped, so sixty new capes are sixty minutes of news and not one burst" "limit.clamp(1, 10)" "$(cat "$CAPE_DB")"
+has "asking for a check is a stamp, not a request" "pub fn force_cape_check" "$(cat "$CAPE_DB")"
+
+has "the notifier runs on the slow tick, per guild on its own interval" "capes::tick" "$(cat "$ROOT/crates/aerona-bot/src/tasks.rs")"
+has "the embed points at the file the same message uploads" 'attachment://{filename}' "$(cat "$CAPE_BOT")"
+has "  ...with the wiki's own render when there is no flat texture" "is_portrait_render" "$(cat "$CAPE_BOT")"
+has "  ...and no announcement is ever lost to a missing picture" "announcing without a picture" "$(cat "$CAPE_BOT")"
+has "a channel that keeps refusing is counted, then left alone" "note_cape_attempt" "$(cat "$CAPE_BOT")"
+has "  ...and the count is said out loud on the panel" "not posted after" "$(cat "$CAPE_CORE")"
+
+# ---------------------------------------------------------------- round 15, by report
+# Tickets that delete themselves, transcripts that open, a delete that says what is missing, and a cape
+# render that is a drape. Each line is the smallest thing that would have told us the report was still
+# true.
+
+## The transcript is a document, not a link collection.
+has "kept pictures are inside the transcript" 'data:' "$(cat "$ROOT/crates/aerona-core/src/transcript.rs")"
+has "  ...and the page's own CSP lets them be" 'img-src https: data:' "$(cat "$ROOT/crates/aerona-core/src/transcript.rs")"
+has "  ...while the original url stays the link around the picture" 'let link = escape(&url)' "$(cat "$ROOT/crates/aerona-core/src/transcript.rs")"
+has "  ...and the footer counts what is in there" 'fn footer_note' "$(cat "$ROOT/crates/aerona-core/src/transcript.rs")"
+# Inline unless asked otherwise, on one handler: two routes for one document is how the two halves
+# drift, and `private, no-store` is what keeps a ticket transcript out of a shared browser's history.
+TX="$(cat "$ROOT/crates/aerona-api/src/routes/guild.rs")"
+has "a transcript opens inline unless it is asked to be saved" 'fn transcript_file' "$TX"
+has "  ...with the disposition switched by one query key" 'download' "$TX"
+has "  ...and never cached, because the document is the current state of a live channel" 'no-store' "$TX"
+hasnt "no transcript route reads a Discord url directly" 'cdn.discordapp.com' "$TX"
+
+## Files: what is kept, and for how long.
+TICK="$(cat "$ROOT/crates/aerona-core/src/db/tickets.rs")"
+has "a close schedules the channel's deletion" 'schedule_ticket_delete' "$(cat "$ROOT/crates/aerona-bot/src/events.rs")"
+has "  ...and a reopen un-schedules it" 'schedule_ticket_delete(ticket.id, None)' "$(cat "$ROOT/crates/aerona-bot/src/events.rs")"
+has "  ...the deadline is a queue, not a retry loop" 'channel_deleted_at IS NULL' "$TICK"
+has "  ...so the janitor needs an idempotent way to record the fact" 'pub fn mark_ticket_channel_deleted' "$TICK"
+has "the deletion is executed on the slow tick, not in the close path" 'delete_due_ticket_channels' "$(cat "$ROOT/crates/aerona-bot/src/tasks.rs")"
+has "  ...a channel that is already gone counts as deleted, not as failure" 'fn channel_gone' "$(cat "$ROOT/crates/aerona-bot/src/tasks.rs")"
+has "  ...and a refusal is retried on a backoff rather than every minute" 'SLOW_SECS' "$(cat "$ROOT/crates/aerona-bot/src/tasks.rs")"
+has "the caps live in the store, so a best-effort caller may skip but cannot overflow a document" 'TicketConfig::FILES_MAX' "$TICK"
+has "  ...and kept files are addressed by (seq, idx), the way the transcript finds them" 'ON CONFLICT(ticket_id,seq,idx)' "$TICK"
+has "pruning removes the copy and leaves the row" 'pub fn prune_ticket_files' "$TICK"
+has "the panel has all three knobs" 'delete_after_minutes' "$(src pages/guild/Tickets.tsx)"
+has "  ...retention included" 'keep_ticket_files_days' "$(src pages/guild/Tickets.tsx)"
+
+## Deleted messages, which is the complaint that started this round.
+EV="$(cat "$ROOT/crates/aerona-bot/src/events.rs")"
+has "a delete says why its text is missing rather than claiming it was kept" 'the text was kept from when it arrived' "$EV"
+has "  ...naming the switch when the switch is the reason" 'MESSAGE_CONTENT' "$EV"
+has "  ...and naming the cache window when the cache is the reason" 'older than this guild' "$EV"
+has "the card puts kept text in the body instead of inventing an After field" 'let kept = if e.event' "$(cat "$ROOT/crates/aerona-bot/src/logger.rs")"
+has "the cache is written before the bot decides it does not care about a message" 'worth_caching(' "$EV"
+has "  ...so a message deleted a minute later still has a text to quote" 'fn worth_caching' "$EV"
+has "an intent that is a question is answered in words, not by a typo" 'fn parse_yes_no' "$(cat "$ROOT/crates/aerona-core/src/config.rs")"
+has "  ...and a non-answer is refused at boot" 'neither yes nor no' "$(cat "$ROOT/crates/aerona-core/src/config.rs")"
+has "  ...while the launcher says what leaving it off costs" 'AERONA_CONTENT_INTENT is' "$(cat "$ROOT/main.py")"
+has "the delete and the edit share one lookup, so they cannot disagree about what was cached" 'fn delete_entry' "$EV"
+has "  ...and the row is forgotten once the message is gone" 'forget_message' "$EV"
+
+## The cape: an API, and a drape.
+has "the source is MediaWiki's own web API, in one documented call per question" 'action=query' "$(cat "$CAPE_CORE")"
+has "  ...the category, not a page to parse" 'generator=categorymembers' "$(cat "$CAPE_CORE")"
+# The shape of the answer, asserted as an absence: the reason this source is usable at all is that
+# MediaWiki answers json. `hasnt` is a substring test, so what is checked is the html a parser would
+# need - a doctype and a content type - rather than the names of parsers that are not dependencies.
+hasnt "  ...so nothing here has to read html" '<!DOCTYPE' "$(cat "$CAPE_CORE")"
+hasnt "  ...and nothing asks the wiki for a page" 'text/html' "$(cat "$CAPE_CORE")"
+has "  ...chosen because Mojang publishes no cape list at all" "Mojang does not publish a cape list" "$(cat "$CAPE_CORE")"
+has "  ...and the texture names are asked about directly, because the pages list nothing" 'pub fn wanted_files' "$(cat "$CAPE_CORE")"
+has "the sheet is the unwrap of a 10x16x1 box, not a rectangle to stretch" 'pub struct Sheet' "$(cat "$CAPE_CORE")"
+has "  ...so a texture that is not that shape is refused instead of smeared" 'is not a cape sheet' "$(cat "$CAPE_CORE")"
+has "  ...with the busy face chosen as the one the camera sees" 'pub fn design_face' "$(cat "$CAPE_CORE")"
+has "  ...lit from the 3D geometry rather than the projected one" 'fn face_normal' "$(cat "$CAPE_CORE")"
+has "the frames, the hero and the flat copy are the renderer's constants" 'pub const FRAMES' "$(cat "$CAPE_CORE")"
+has "  ...and the model re-exports them, so a frame cannot go missing from the panel" 'crate::cape::FRAMES' "$(cat "$ROOT/crates/aerona-core/src/models.rs")"
+has "the notifier asks once per cape, not twice" 'async fn ask_about_files' "$CAPE_BOT_BODY"
 
 printf '\n  %s passed, %s failed, %s skipped\n\n' "$pass" "$fail" "$skipped"
 [ "$fail" -eq 0 ] && [ "$skipped" -eq 0 ]

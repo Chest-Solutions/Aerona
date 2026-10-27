@@ -10,7 +10,7 @@ use crate::models::WarnRecord;
 
 use super::{now, Db};
 
-/// What happened when a warn was recorded — the bot needs this to decide whether
+/// What happened when a warn was recorded - the bot needs this to decide whether
 /// to run the escalation action, and the API needs it for the command reply.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct WarnOutcome {
@@ -248,7 +248,7 @@ impl Db {
         })
     }
 
-    /// Read the ledger without writing — used by the dashboard's filter tester.
+    /// Read the ledger without writing - used by the dashboard's filter tester.
     pub fn strikes_between(
         &self,
         guild: Snowflake,
@@ -425,7 +425,7 @@ impl Db {
         // One query per figure rather than a `CASE` tower: SQLite would reuse ?n
         // across the sub-expressions, and a wrong-but-plausible count is far worse
         // for an operator than a few cheap indexed scans. Each call binds exactly
-        // the parameters its statement uses — rusqlite errors on surplus ones.
+        // the parameters its statement uses - rusqlite errors on surplus ones.
         self.read(move |conn| {
             let count = |sql: &str, args: &[&dyn rusqlite::ToSql]| -> Result<i64> {
                 conn.query_row(sql, args, |r| r.get::<_, i64>(0))
@@ -726,7 +726,7 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].reason, "x");
         assert_eq!(rows[0].id, o.warn_id);
-        // `pardoned_at` is a timestamp, not a role/user id — the classic
+        // `pardoned_at` is a timestamp, not a role/user id - the classic
         // bind-order mistake, so assert on the magnitude.
         db.pardon_warn(g(), o.warn_id, m()).unwrap();
         let pardoned = db.warns_for(g(), u(), 10).unwrap().remove(0);

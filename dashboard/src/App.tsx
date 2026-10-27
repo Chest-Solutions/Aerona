@@ -3,7 +3,7 @@
  *
  * There is one shape now, because there is one kind of page now: the install *is* the
  * dashboard, and it does not show itself to a browser it cannot identify. `<main id="main">`
- * is load-bearing twice — `main.tsx` treats it as the mark of prerendered markup, and the
+ * is load-bearing twice - `main.tsx` treats it as the mark of prerendered markup, and the
  * router moves focus to it after a navigation so a screen reader is not left on a link that
  * no longer exists.
  */
@@ -17,7 +17,7 @@ import { SessionProvider, useSession } from './lib/hooks'
 import { RouterProvider, routes, useRouter, type RouteDef, type RouteParams } from './router'
 
 // Pages are lazy, but the prerenderer resolves the module before it renders, so a
-// static pass never suspends — one code path, two modes.
+// static pass never suspends - one code path, two modes.
 const resolved = new Map<string, ComponentType<{ params: RouteParams }>>()
 const pending = new Map<string, Promise<ComponentType<{ params: RouteParams }>>>()
 
@@ -48,7 +48,7 @@ export async function preload(def: RouteDef): Promise<void> {
  *
  * A route marked `app` in `router.tsx` is a signed-in route, and a browser with no session
  * gets one page to look at: the login screen, asked in the imperative, carrying where it was
- * going. That is the whole behaviour — no server list with a "could not load" card under it,
+ * going. That is the whole behaviour - no server list with a "could not load" card under it,
  * and no API error body where a page should be, because a 401 from a data fetch is not a fact
  * about the install. It is a fact about the visitor, and the visitor is about to be sent
  * somewhere else.
@@ -56,7 +56,7 @@ export async function preload(def: RouteDef): Promise<void> {
  * The check is `ready && !me`, not `!me`: while `/me` is in flight there is nothing to decide,
  * and hiding the view then would blank a signed-in page for a round trip and strip the
  * prerendered document before hydration. Once it settles on "no session", the view is not
- * rendered at all — so a fetch that 401s on the same tick cannot flash its error card first.
+ * rendered at all - so a fetch that 401s on the same tick cannot flash its error card first.
  */
 function AuthGate({ children }: { children: ReactNode }) {
   const { me, ready } = useSession()
@@ -76,7 +76,7 @@ function AuthGate({ children }: { children: ReactNode }) {
   // `ready` is false for the first frames and during prerender, and the decision is not made
   // yet then: a signed-in visitor would otherwise see the page they are allowed to read blank
   // out while `/me` is in flight, and the prerendered document would lose its markup before
-  // hydration even began. Only a *settled* "no session" hides the view — which is also what
+  // hydration even began. Only a *settled* "no session" hides the view - which is also what
   // keeps a data fetch's 401 from being painted as an error card for one frame.
   if (gated && ready && !me) return null
   return <>{children}</>

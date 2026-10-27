@@ -3,7 +3,7 @@
  * any page is allowed to change configuration.
  *
  * Every settings page goes through `patch`, which means every save is a `PATCH` to
- * `/settings/<feature>` — the endpoint that validates, merges, audits and records history.
+ * `/settings/<feature>` - the endpoint that validates, merges, audits and records history.
  * No page gets to keep its own idea of how a setting is stored.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
@@ -25,6 +25,9 @@ import {
 type Ctx = {
   id: string
   name: string
+  /** The guild icon's Discord hash, for the rail. `null` is a server with no icon, which the
+   *  avatar falls back to initials for. */
+  icon: string | null
   page: string
   data: GuildOverview | null
   report: GuildReport | null
@@ -102,7 +105,7 @@ export function GuildProvider({
         setData((cur) =>
           cur ? { ...cur, settings: { ...cur.settings, [f]: res.settings } } : cur,
         )
-        if (!res.changed) toast.info('Saved — nothing changed')
+        if (!res.changed) toast.info('Saved - nothing changed')
         else if (res.queued) toast.success(`Saved · queued for Discord as #${res.queued}`)
         else toast.success('Saved')
         // `normalize` drops keys it does not recognise. A field the server threw away is a
@@ -121,6 +124,7 @@ export function GuildProvider({
     () => ({
       id,
       name: row?.name ?? `Server ${id}`,
+      icon: row?.icon ?? null,
       page,
       data,
       report,

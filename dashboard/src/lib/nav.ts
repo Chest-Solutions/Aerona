@@ -5,7 +5,7 @@
  *
  * A page is listed once, here. The router builds its route patterns from it, the sidebar
  * renders its groups from it, and the settings form for a page looks up which config
- * document it writes — so adding a feature means adding a row, not editing four files.
+ * document it writes - so adding a feature means adding a row, not editing four files.
  */
 import type { LucideIcon } from 'lucide-react'
 
@@ -21,13 +21,13 @@ export type GuildPage = {
   /**
    * The page's own glyph, in the rail and in the header. Uniqueness is audited at build time
    * rather than left to taste: fifteen rows sharing three icons (which is what this table used to
-   * have — a shield on nine of them) means the rail cannot be scanned, only read, and a symbol
+   * have - a shield on nine of them) means the rail cannot be scanned, only read, and a symbol
    * that repeats in a nav list repeats in the operator's memory of where things live.
    */
   icon: LucideIcon
 }
 
-import { Bot, Command, Filter, Gavel, History, LayoutDashboard, Link2Off, Medal, Pin, ScrollText, Settings2, Siren, Ticket, UserPlus, Waves } from 'lucide-react'
+import { Bot, Command, Gem, Filter, Gavel, History, LayoutDashboard, Link2Off, Medal, Pin, ScrollText, Settings2, Siren, Ticket, UserPlus, Waves } from 'lucide-react'
 
 export const guildPages: GuildPage[] = [
   { seg: '', label: 'Overview', hint: 'What the bot sees right now.', group: 'Server', features: [], icon: LayoutDashboard},
@@ -39,6 +39,7 @@ export const guildPages: GuildPage[] = [
   { seg: 'raid', label: 'Anti-raid', hint: 'Join bursts and a one-click lockdown.', group: 'Safety', features: ['anti_raid'], icon: Siren},
   { seg: 'tickets', label: 'Tickets', hint: 'Private threads with your staff.', group: 'Community', features: ['tickets'], icon: Ticket},
   { seg: 'stickies', label: 'Stickies', hint: 'Pinned notes that expire themselves.', group: 'Community', features: ['sticky'], icon: Pin},
+  { seg: 'capes', label: 'Minecraft capes', hint: 'A ping when a cape comes out.', group: 'Community', features: ['capes'], icon: Gem},
   { seg: 'welcome', label: 'Welcome & roles', hint: 'Join message, autoroles, goodbye.', group: 'Community', features: ['welcome', 'autorole'], icon: UserPlus},
   { seg: 'levels', label: 'Levels', hint: 'XP, ranks, level-up pings.', group: 'Community', features: ['general'], icon: Medal},
   { seg: 'logs', label: 'Logging', hint: 'Edits, deletes, name changes.', group: 'Community', features: ['logging'], icon: ScrollText},
@@ -51,7 +52,7 @@ export const guildPages: GuildPage[] = [
 
 export const guildGroups = ['Server', 'Safety', 'Community', 'Setup'] as const
 
-/** `/guild/123/` and `/guild/123/moderation/` — trailing slash, like every other route. */
+/** `/guild/123/` and `/guild/123/moderation/` - trailing slash, like every other route. */
 export function guildPath(guild: string, seg: string): string {
   return `/guild/${guild}/${seg ? `${seg}/` : ''}`
 }

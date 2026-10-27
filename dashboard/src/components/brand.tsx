@@ -4,11 +4,11 @@
  * `aerona-mark.png` is dark ink for the light theme and `aerona-mark-light.png` is white ink for
  * the dark one. The swap is Tailwind's `dark:` variant rather than a hook: the logo then changes
  * with the same class that changes every token, so there is no second source of truth about which
- * theme is showing — and a browser with no JavaScript still gets the right one, because the class
+ * theme is showing - and a browser with no JavaScript still gets the right one, because the class
  * is on `<html>` before React exists (see `public/theme-boot.js`).
  *
  * Both files come from `artwork/aerona.png` via `python3 scripts/make-icons.py`, which also writes
- * the favicons and the manifest icons — one file of art, no hand-drawn second version of the logo.
+ * the favicons and the manifest icons - one file of art, no hand-drawn second version of the logo.
  */
 import { cn } from '@/lib/utils'
 

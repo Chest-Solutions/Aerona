@@ -23,7 +23,7 @@ const problems = []
 const fail = (msg) => problems.push(msg)
 
 if (!existsSync(ssrEntry)) {
-  console.error('✗ dist-server/entry-server.js is missing — run `npm run build:ssr` first.')
+  console.error('✗ dist-server/entry-server.js is missing - run `npm run build:ssr` first.')
   process.exit(1)
 }
 
@@ -35,7 +35,7 @@ if (!Array.isArray(paths) || paths.length === 0) {
 
 // The template has to survive being written over: the root route IS `dist/index.html`.
 // A pristine build still carries the slot comments, so the cache is refreshed whenever
-// it is, and only reused otherwise — which is what makes `npm run prerender` on its own
+// it is, and only reused otherwise - which is what makes `npm run prerender` on its own
 // work without ever serving a stale bundle. It lives *outside* `dist`, because anything
 // inside the document root is a URL: a build artefact nobody meant to publish.
 const cachePath = path.join(root, '.prerender-template.html')
@@ -50,7 +50,7 @@ if (existsSync(built)) {
 }
 if (!template) {
   if (!existsSync(cachePath)) {
-    console.error('✗ dist/index.html has no slot comments and no cached template exists — run `npm run build` first.')
+    console.error('✗ dist/index.html has no slot comments and no cached template exists - run `npm run build` first.')
     process.exit(1)
   }
   template = await readFile(cachePath, 'utf8')
@@ -60,7 +60,7 @@ if (!template.includes('<!--head-->')) fail('the template has no <!--head--> slo
 
 const bootPath = path.join(dist, 'theme-boot.js')
 if (!existsSync(bootPath)) {
-  fail('dashboard/public/theme-boot.js was not built into dist/ — the theme would be decided by React, one paint late')
+  fail('dashboard/public/theme-boot.js was not built into dist/ - the theme would be decided by React, one paint late')
 }
 const bootBody = await readFile(bootPath, 'utf8')
 
@@ -92,7 +92,7 @@ for (const p of paths) {
   if (!filled.includes('<meta name="viewport"')) fail(`${p}: no viewport meta`)
   // The theme is one class on <html>, set before the stylesheet paints, by a *file*: the
   // response's Content-Security-Policy is `script-src 'self'` with no hashes and no
-  // unsafe-inline, so an inline block here is not a style choice — the browser refuses it, the
+  // unsafe-inline, so an inline block here is not a style choice - the browser refuses it, the
   // class never lands, and React hydrates the wrong colours and logs a recoverable mismatch
   // nobody can act on. Three halves of that promise get checked: the link is first, the file
   // was built, and nothing in <head> is inline for the policy to refuse.
@@ -112,7 +112,7 @@ for (const p of paths) {
     const type = /\btype="([^"]*)"/.exec(m[1])?.[1]
     return !type || type === 'module' || type === 'text/javascript' || type === 'application/javascript'
   })
-  if (inlineExecutable.length) fail(`${p}: an inline executable <script> in <head> — CSP script-src 'self' refuses it`);
+  if (inlineExecutable.length) fail(`${p}: an inline executable <script> in <head> - CSP script-src 'self' refuses it`);
   if (/<html[^>]*\bclass="[^"]*\bdark\b/.test(filled)) fail(`${p}: <html> is pinned to the dark class, so a light-mode reader gets a dark flash`)
   if (!filled.includes('name="theme-color"')) fail(`${p}: no theme-color meta, so the browser chrome paints the wrong colour`)
   if (!filled.includes('name="color-scheme"')) fail(`${p}: no color-scheme meta, so scrollbars and form controls stay light`)
@@ -132,7 +132,7 @@ for (const p of paths) {
 }
 
 // --------------------------------------------------------------------- shell
-// `/guild/123/tickets/` has no file and never will — the server id is in the URL — so the API
+// `/guild/123/tickets/` has no file and never will - the server id is in the URL - so the API
 // serves this document for that prefix. It is the *template*, slots and all: an empty `#root`,
 // so the client mounts rather than hydrating, and none of the root page's markup for React to
 // find missing (a prerendered `/` under a guild URL is a hydration mismatch, logged as a
@@ -147,26 +147,26 @@ const shell = template
 await writeFile(path.join(dist, 'shell.html'), shell, 'utf8')
 if (shell.includes('id="main"')) fail('shell.html carries prerendered markup, so a deep link hydrates against the wrong page')
 if (!/<script src="\/theme-boot\.js"><\/script>/.test(shell)) fail('shell.html lost the theme bootstrap')
-// Not a route — nobody links to it, and counting it as one would inflate the number the
+// Not a route - nobody links to it, and counting it as one would inflate the number the
 // summary prints for the sitemap's sake.
 const shellBytes = Buffer.byteLength(shell)
 
 // ------------------------------------------------------------ vendored-component audit
 // A Base UI part reads the context of the ancestor it belongs to and *throws* when it is used bare.
 // Minified that arrives as `Base UI error #31`, and in production a throw during render unmounts the
-// page — so what the operator sees is "the server pages don't work", with one console line as the
+// page - so what the operator sees is "the server pages don't work", with one console line as the
 // only evidence. This repo shipped that bug for a round: `DropdownMenuLabel` was `Menu.GroupLabel`
 // underneath, and a caption at the top of a menu has no `Menu.Group`, so opening the guild switcher
 // took the guild page with it. `node_modules/@base-ui/react` carries 58 "…Context is missing"
-// messages (`grep -rhoE "[A-Za-z]+Context is missing" node_modules/@base-ui/react`) — the class is
+// messages (`grep -rhoE "[A-Za-z]+Context is missing" node_modules/@base-ui/react`) - the class is
 // not hypothetical, it is what a registry component can hand you, and no type check sees it.
 //
 // The rule is the narrow, false-positive-free half of the lesson: an export named `…Label` is a
-// caption, and a caption must not be a group-scoped primitive — those are `aria-hidden` on top of
+// caption, and a caption must not be a group-scoped primitive - those are `aria-hidden` on top of
 // requiring an ancestor, because their job is to be a group's `aria-labelledby` target. A
 // group-scoped label gets its own name (`DropdownMenuGroupLabel`, `SelectGroupLabel`) and its own
-// audit-free use site. The other half — checking that a group-scoped wrapper is nested in its group
-// at every call site — would need a JSX tree walk, and every group-scoped name we have is unused in
+// audit-free use site. The other half - checking that a group-scoped wrapper is nested in its group
+// at every call site - would need a JSX tree walk, and every group-scoped name we have is unused in
 // app code today, so it stays out rather than becoming a heuristic that fails builds mysteriously.
 {
   const uiDir = path.join(root, 'src/components/ui')
@@ -177,19 +177,19 @@ const shellBytes = Buffer.byteLength(shell)
     )
     // `\n}$` rather than `\n}`: these functions open with a destructured props annotation whose
     // continuation line starts with `}` (`}: MenuPrimitive.GroupLabel.Props & {`), and a body that
-    // stopped there would test the type and never the element — which is exactly how the first
+    // stopped there would test the type and never the element - which is exactly how the first
     // version of this rule passed a build it was written to fail.
     for (const fn of src.matchAll(/^function (\w+Label)\b[\s\S]*?\n\}$/gm)) {
       const [body, fname] = [fn[0], fn[1]]
       if (!exported.has(fname)) continue
-      // A `…GroupLabel` is *meant* to be group-scoped — that is what it is for — so it is exempt by
+      // A `…GroupLabel` is *meant* to be group-scoped - that is what it is for - so it is exempt by
       // name. What is not allowed is a caption, which is what a bare `…Label` reads as to everyone
       // using the component, silently being the primitive that needs the group.
       if (fname.endsWith('GroupLabel')) continue
       // The *element*, not the type: a wrapper may well take `GroupLabel.Props` for its props and
       // render a div, which is legal and is what the fixed caption does today.
       if (/<\w+\.GroupLabel[\s/>]/.test(body)) {
-        fail(`components/ui/${name}: ${fname} renders a GroupLabel primitive. A caption cannot be group-scoped — Base UI throws without the group (production error #31) and the primitive is aria-hidden. Keep the div; export a separate ${fname.replace(/Label$/, 'GroupLabel')} for grouped use.`)
+        fail(`components/ui/${name}: ${fname} renders a GroupLabel primitive. A caption cannot be group-scoped - Base UI throws without the group (production error #31) and the primitive is aria-hidden. Keep the div; export a separate ${fname.replace(/Label$/, 'GroupLabel')} for grouped use.`)
       }
     }
   }
@@ -199,7 +199,7 @@ const shellBytes = Buffer.byteLength(shell)
 // Two properties the app's own structure makes checkable, and neither is cosmetic.
 //
 // The rail used to render fifteen rows from three glyphs, which is the kind of thing nobody notices
-// in review and everybody notices while using it — so the table has one icon per row now, and "more
+// in review and everybody notices while using it - so the table has one icon per row now, and "more
 // unique" is only a lasting change if a build refuses to let it decay back.
 //
 // The second rule is the one that would have caught the round before this one: `pages/Guild.tsx`
@@ -213,7 +213,7 @@ const shellBytes = Buffer.byteLength(shell)
   const segs = rows.map((m) => m[1])
   const icons = rows.map((m) => m[2])
   const dupes = [...new Set(icons.filter((x, i) => icons.indexOf(x) !== i))]
-  if (dupes.length) fail(`nav.ts: ${dupes.join(', ')} is used by more than one page — a glyph shared in a rail marks nothing`)
+  if (dupes.length) fail(`nav.ts: ${dupes.join(', ')} is used by more than one page - a glyph shared in a rail marks nothing`)
   if (new Set(segs).size !== segs.length) fail('nav.ts: a segment appears twice, so one of them can never be opened')
 
   const guild = await readFile(path.join(root, 'src/pages/Guild.tsx'), 'utf8')
@@ -225,7 +225,7 @@ const shellBytes = Buffer.byteLength(shell)
     }
   }
   if (keys.length && keys.length !== segs.length) {
-    fail(`pages/Guild.tsx: VIEWS has ${keys.length} entries for ${segs.length} nav rows — one of them is unreachable or missing`)
+    fail(`pages/Guild.tsx: VIEWS has ${keys.length} entries for ${segs.length} nav rows - one of them is unreachable or missing`)
   }
 
   // A card without a glyph is a wall of text, and a page that repeats one has two of the same
@@ -237,7 +237,7 @@ const shellBytes = Buffer.byteLength(shell)
       if (!call[1].includes('fields=')) continue
       const title = call[1].match(/title="([^"]*)"/)?.[1] ?? file
       const icon = call[1].match(/icon=\{(\w+)\}/)
-      if (!icon) fail(`pages/guild/${file}: the "${title}" card has no icon — every config card is identified by one`)
+      if (!icon) fail(`pages/guild/${file}: the "${title}" card has no icon - every config card is identified by one`)
       else used.push(icon[1])
     }
     const again = [...new Set(used.filter((x, i) => used.indexOf(x) !== i))]
@@ -247,13 +247,13 @@ const shellBytes = Buffer.byteLength(shell)
 
 // ------------------------------------------------------------ settings-document audit
 // The panel edits documents the bot owns. The accepted key list is the set of fields the API
-// serializes for a feature, and an unknown key is a 400 rather than a shrug — deliberately, because
+// serializes for a feature, and an unknown key is a 400 rather than a shrug - deliberately, because
 // every config struct is `#[serde(default)]`, so a lenient merge would store `join_threshhold`,
 // answer 200, and go on raid-sensing the old number.
 //
 // Neither side's type checker can see the boundary: the panel writes `Record<string, unknown>` with
-// a string literal, Rust sees JSON. This repo shipped 83 of them misspelled — every form
-// camelCase (`welcomeEnabled`) against a model speaking snake_case (`welcome_enabled`) — and that is
+// a string literal, Rust sees JSON. This repo shipped 83 of them misspelled - every form
+// camelCase (`welcomeEnabled`) against a model speaking snake_case (`welcome_enabled`) - and that is
 // what "the features don't work and aren't customizable" actually was: not a missing feature, a 400
 // on every save, for a key nobody had ever read. So the two trees are checked against each other at
 // the one moment both are guaranteed to be on disk.
@@ -279,22 +279,24 @@ const shellBytes = Buffer.byteLength(shell)
       anti_raid: 'RaidConfig', ai_filter: 'AiConfig', link_guard: 'LinkGuardConfig',
       anti_spam: 'AntiSpamConfig', identity: 'IdentityConfig', autorole: 'AutoConfig',
       welcome: 'AutoConfig', logging: 'LogConfig', commands: 'AutoConfig',
+      capes: 'CapeConfig',
     }
     const apiSrc = await readFile(path.join(root, 'src/lib/api.ts'), 'utf8')
     const declared = [...apiSrc.matchAll(/^\s*\| '(\w+)'$/gm)].map((m) => m[1]).filter((f) => f !== 'keys')
-    for (const f of declared) if (!DOC[f]) fail(`lib/api.ts declares feature "${f}" and the audit does not know its struct — add it to DOC, next to default_doc in the API`)
+    for (const f of declared) if (!DOC[f]) fail(`lib/api.ts declares feature "${f}" and the audit does not know its struct - add it to DOC, next to default_doc in the API`)
 
     // A field with no control is a setting that exists only in the database. Each exemption below
     // says why that is correct; a new field with neither a control nor a reason fails the build.
     const EXEMPT = {
       avatar: 'staged through /identity/avatar so a megabyte of base64 never enters config_history',
       avatar_hash: 'written by the apply, not by an operator',
+      banner_hash: 'the digest a staged banner leaves behind; the bytes never enter the document, and the apply clears it',
       categories: 'derived from categories_config by the filter page',
       categories_config: 'edited by the rule rows on the filter page, not a form field',
       custom_rules: 'edited by the rule rows on the filter page, not a form field',
       list_id: 'an allowlist row id, owned by the rules table',
     }
-    /** Which fields each *document* has a control for — not each feature name, because
+    /** Which fields each *document* has a control for - not each feature name, because
      *  `autorole`, `welcome` and `commands` are three screens over `AutoConfig`, and a field the
      *  Welcome page edits is not "uncontrolled" just because the Commands page does not repeat it.
      */
@@ -318,7 +320,7 @@ const shellBytes = Buffer.byteLength(shell)
         const near = Object.keys(DOC).filter((f) => feats.has(f) && structOf(DOC[f]).includes(snake))
         // One failure per key, and the near-miss wording wins: a report that says both is a report
         // somebody has to read twice to find the difference.
-        if (near.length) fail(`${file}: key '${k}' is not a field any of its features has, but '${snake}' is (${near.join('/')}) — the API will 400 the save. Spell it the model's way.`)
+        if (near.length) fail(`${file}: key '${k}' is not a field any of its features has, but '${snake}' is (${near.join('/')}) - the API will 400 the save. Spell it the model's way.`)
         else fail(`${file}: key '${k}' is not a settings field of ${[...feats].map((f) => `settings/${f}`).join(', ') || 'any feature this page edits'}`)
       }
     }
@@ -328,13 +330,13 @@ const shellBytes = Buffer.byteLength(shell)
       for (const f of structOf(struct)) {
         if (have.has(f) || EXEMPT[f]) continue
         const camel = f.replace(/_(\w)/g, (_, c) => c.toUpperCase())
-        const note = have.has(camel) ? ` — a page calls it '${camel}', which the model does not have` : ''
+        const note = have.has(camel) ? ` - a page calls it '${camel}', which the model does not have` : ''
         fail(`settings/${feats.join('|')} (${struct}) has '${f}', which no page controls${note}. Add a field, or exempt it in prerender.mjs with the reason.`)
       }
     }
 
     // A read is as wrong as a write. `data.settings.sticky?.cooldownSecs` returns `undefined`
-    // silently — the tile says "off" forever and no request ever fails — so the camelCase spelling
+    // silently - the tile says "off" forever and no request ever fails - so the camelCase spelling
     // of any multi-word field is refused anywhere in the panel, not only in a form. Single-word
     // fields are exempt by construction: `enabled` is a legitimate property of plenty of things.
     const allSrc = []
@@ -348,8 +350,8 @@ const shellBytes = Buffer.byteLength(shell)
       }
       await walk(path.join(root, 'src', dir))
     }
-    // Half of these names are correct: the API's hand-built responses — the overview, the report,
-    // the identity row — are camelCase by convention, and only the *settings documents* are the
+    // Half of these names are correct: the API's hand-built responses - the overview, the report,
+    // the identity row - are camelCase by convention, and only the *settings documents* are the
     // structs' snake_case. So a camel spelling is refused unless the server really emits it, which
     // makes the rule read the tree it is checking the contract against. (Without this, `api.ts`'s
     // `strikeThreshold` and `Profile.tsx`'s `avatarHash` were flagged: both are emitted, at
@@ -376,7 +378,7 @@ const shellBytes = Buffer.byteLength(shell)
         if (camel === f || emitted.has(camel)) continue
         for (const [file, src] of allSrc) {
           if (new RegExp(`\\b${camel}\\b`).test(src)) {
-            fail(`${path.relative(root, file)} mentions '${camel}', which is not a settings field — the model calls it '${f}', and reading the wrong name yields undefined rather than an error`)
+            fail(`${path.relative(root, file)} mentions '${camel}', which is not a settings field - the model calls it '${f}', and reading the wrong name yields undefined rather than an error`)
           }
         }
       }
@@ -398,7 +400,7 @@ const shellBytes = Buffer.byteLength(shell)
       const advertised = new Set([...said.matchAll(/\{(\w+)\}/g)].map((m) => `{${m[1]}}`))
       for (const t of advertised) {
         if (!known.has(t)) {
-          fail(`Welcome.tsx advertises ${t} in a hint or a placeholder, which the bot never replaces — a greeting that shows a new member a brace`)
+          fail(`Welcome.tsx advertises ${t} in a hint or a placeholder, which the bot never replaces - a greeting that shows a new member a brace`)
         }
       }
       const defaults = [...models.matchAll(/welcome_message: "([^"]*)"|goodbye_message: "([^"]*)"/g)]
@@ -497,8 +499,8 @@ await writeFile(
   'utf8',
 )
 // A build must not silently produce a one-line robots.txt. `join('\n')` with a doubled
-// backslash is the exact typo that does it — valid JS, and the file reads as literal
-// backslash-n sequences to every crawler — so the output is verified, not assumed.
+// backslash is the exact typo that does it - valid JS, and the file reads as literal
+// backslash-n sequences to every crawler - so the output is verified, not assumed.
 // `llms.txt` used to be checked here too, and shipped a page list that described a front
 // page; a private panel has nothing to advertise to an agent, so the file is gone.
 for (const name of ['robots.txt']) {

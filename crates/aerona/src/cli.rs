@@ -94,8 +94,8 @@ impl Options {
                 "--doctor" => set_command(&mut command, Command::Doctor, &arg)?,
                 "--run" => set_command(&mut command, Command::Run, &arg)?,
                 other if !other.starts_with('-') => {
-                    // `check` and `doctor` are different things — the second is the
-                    // one that touches the network — so no alias may quietly pick the
+                    // `check` and `doctor` are different things - the second is the
+                    // one that touches the network - so no alias may quietly pick the
                     // other.
                     let named = match other {
                         "run" | "start" | "serve" => Command::Run,
@@ -105,7 +105,7 @@ impl Options {
                         "help" => Command::Help,
                         unknown => {
                             return Err(Error::Config(format!(
-                                "unknown command {unknown:?} — expected run, check, doctor, version or help"
+                                "unknown command {unknown:?} - expected run, check, doctor, version or help"
                             )))
                         }
                     };
@@ -195,7 +195,7 @@ impl Options {
 
     pub fn usage() -> &'static str {
         "\
-aerona — the dashboard, the API and the Discord worker in one process
+aerona - the dashboard, the API and the Discord worker in one process
 
 usage: aerona [COMMAND] [FLAGS]
 
@@ -216,7 +216,7 @@ flags
   -V, --version      print the version and exit
   -h, --help         print this
 
-everything else is configured in .env — see .env.example (and `python3 main.py check`).
+everything else is configured in .env - see .env.example (and `python3 main.py check`).
 "
     }
 }
@@ -237,7 +237,7 @@ fn set_command(held: &mut Option<Command>, want: Command, arg: &str) -> Result<(
     if let Some(previous) = held {
         if *previous != want {
             return Err(Error::Config(format!(
-                "`{arg}` says {want:?} but the command is already {previous:?} — pick one"
+                "`{arg}` says {want:?} but the command is already {previous:?} - pick one"
             )));
         }
     }

@@ -1,6 +1,6 @@
 /**
  * Rate and shape limits. The counters live in the worker's memory, so these rules cost
- * nothing and reset when it restarts — which is why the flood limit is off by default:
+ * nothing and reset when it restarts - which is why the flood limit is off by default:
  * a limit that is too tight silences an announcement, and the operator hears about it
  * from their members, not from this page.
  */
@@ -20,7 +20,6 @@ export default function AntiSpam() {
     <div className="grid gap-5">
       <PageHeader
         title="Anti-spam"
-        hint="Per member, per channel, in memory."
         actions={<Badge variant={cfg.enabled ? 'default' : 'secondary'}>{cfg.enabled ? 'on' : 'off'}</Badge>}
       />
 
@@ -54,7 +53,6 @@ export default function AntiSpam() {
         title="When a rule fires"
         icon={Zap}
         tone="warn"
-        description="One action for every rule, so a flood and a caps outburst cannot drift apart."
         fields={[
           {
             kind: 'enum',

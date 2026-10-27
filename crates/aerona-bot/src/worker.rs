@@ -37,7 +37,7 @@ pub fn chosen_intents(cfg: &Config) -> GatewayIntents {
         intents |= GatewayIntents::MESSAGE_CONTENT;
     } else {
         tracing::warn!(
-            "the MESSAGE_CONTENT intent is off: prefix commands and message scanning need it — set AERONA_CONTENT_INTENT=true and enable it in the developer portal"
+            "the MESSAGE_CONTENT intent is off: prefix commands and message scanning need it - set AERONA_CONTENT_INTENT=true and enable it in the developer portal"
         );
     }
     intents
@@ -47,7 +47,7 @@ pub fn chosen_intents(cfg: &Config) -> GatewayIntents {
 ///
 /// Deliberately spelled out instead of `format!("{i:?}")`: serenity's bitflags print a
 /// *single* intent from `iter()` as `GatewayIntents(512)`, which tells an operator
-/// nothing about what to tick in the developer portal — and this string is exactly the
+/// nothing about what to tick in the developer portal - and this string is exactly the
 /// `check` output they read while deciding that.
 pub fn describe_intents(cfg: &Config) -> Vec<String> {
     let intents = chosen_intents(cfg);
@@ -66,7 +66,7 @@ pub fn describe_intents(cfg: &Config) -> Vec<String> {
 
 /// The bot half of `check`: intents and providers, with no network call. Whether the
 /// token is *accepted* is a Discord fact, not a configuration fact, and an operator
-/// must be able to check config on a box with no egress — `aerona doctor` is the
+/// must be able to check config on a box with no egress - `aerona doctor` is the
 /// command that asks the network.
 pub fn report(cfg: &Config) -> String {
     format!(
@@ -82,7 +82,7 @@ pub fn report(cfg: &Config) -> String {
 
 /// Connect, run until `shutdown` resolves or Discord gives up on us.
 ///
-/// `Err` means "this worker is dead and needs a fresh attempt" — a bad token, a
+/// `Err` means "this worker is dead and needs a fresh attempt" - a bad token, a
 /// rejected session, a shard set that could not be built. `Ok` means it was told to
 /// stop. Either way the background loops are gone when this returns, so a supervisor may
 /// drop this [`BotState`] and build a new one without leaking tasks.
@@ -109,7 +109,7 @@ pub async fn connect(
     let loops = tasks::spawn(Arc::clone(&state));
     // `?intents` prints `GatewayIntents(519)`: serenity's bitflags `Debug` only names a
     // set when it is *not* a single flag, so the one line an operator reads when the bot
-    // behaves oddly — "what did it actually ask Discord for" — was a number. Names, from
+    // behaves oddly - "what did it actually ask Discord for" - was a number. Names, from
     // the same table `aerona check` prints.
     tracing::info!(
         version = aerona_core::VERSION,

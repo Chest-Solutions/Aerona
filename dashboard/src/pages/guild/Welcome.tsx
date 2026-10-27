@@ -2,16 +2,16 @@
  * First contact: a greeting, the card under it, the roles they get, and a goodbye instead where
  * you want that.
  *
- * Both forms write the same document on purpose — the worker reads one `autorole` row for join
- * roles, the welcome line and the goodbye line — so splitting them into three rows would be three
+ * Both forms write the same document on purpose - the worker reads one `autorole` row for join
+ * roles, the welcome line and the goodbye line - so splitting them into three rows would be three
  * chances to disagree about whether the greeting is on.
  *
  * The preview below is not a toy. Every placeholder a page advertises is a promise about a string
  * the *bot* substitutes, and this one used to break it twice: the hint listed two tokens while the
  * bot knew five, and the shipped default greeting said `member #{count}` with no `{count}` to
- * replace — so a new member was welcomed to the server by a brace. `TOKENS` here and
+ * replace - so a new member was welcomed to the server by a brace. `TOKENS` here and
  * `GreetingFacts::tokens` in `crates/aerona-bot/src/events.rs` are held equal by the settings audit
- * in `scripts/prerender.mjs` — a placeholder named in a hint that the bot does not substitute fails
+ * in `scripts/prerender.mjs` - a placeholder named in a hint that the bot does not substitute fails
  * `npm run build`, which is the only way a list that lives in two languages stays true.
  */
 import { DoorOpen, Frame, Hand, UserPlus } from 'lucide-react'
@@ -61,7 +61,6 @@ export default function Welcome() {
     <div className="grid gap-5">
       <PageHeader
         title="Welcome & roles"
-        hint="What a new member sees, and what they get, in the first minute."
         actions={
           <>
             {on ? <Badge>greeting on</Badge> : <Badge variant="outline">greeting off</Badge>}
@@ -79,7 +78,6 @@ export default function Welcome() {
           <SettingsForm
             feature="welcome"
             title="On join"
-            description="Sent as they arrive. Nothing is said if the switch below is off, whatever is filled in."
             icon={Hand}
             tone="calm"
             fields={[
@@ -98,7 +96,7 @@ export default function Welcome() {
                 hint: `Tokens: ${TOKENS.map(([t]) => t).join(' ')}. Clear it to send the card alone.`,
                 rows: 3,
                 max: 1000,
-                placeholder: 'Welcome {user} to {server} — you are member #{count}.',
+                placeholder: 'Welcome {user} to {server} - you are member #{count}.',
               },
               {
                 kind: 'switch',
@@ -110,7 +108,7 @@ export default function Welcome() {
                 kind: 'switch',
                 key: 'welcome_direct_dm',
                 label: 'Also DM them',
-                hint: 'The one place a greeting is guaranteed to be read, and the one that reads as spam at 10 joins an hour.',
+                hint: 'Where a greeting is guaranteed to be read. Loud at 10 joins an hour.',
               },
               {
                 kind: 'int',
@@ -127,7 +125,6 @@ export default function Welcome() {
           <SettingsForm
             feature="welcome"
             title="As a card"
-            description="An embed under the line, for rules and a link to the intro channel. Both fields are optional: with neither filled, the greeting stays plain text."
             icon={Frame}
             fields={[
               {
@@ -161,7 +158,6 @@ export default function Welcome() {
             <SettingsForm
               feature="autorole"
               title="Roles they get"
-              description="Assigned after the wait below, as they settle in."
               icon={UserPlus}
               fields={[
                 { kind: 'switch', key: 'autoroles_enabled', label: 'Hand out roles on join' },
@@ -188,7 +184,6 @@ export default function Welcome() {
             <SettingsForm
               feature="welcome"
               title="On leave"
-              description="Same tokens, quieter purpose."
               icon={DoorOpen}
               fields={[
                 { kind: 'switch', key: 'goodbye_enabled', label: 'Say goodbye' },
@@ -218,7 +213,7 @@ export default function Welcome() {
               <CardTitle className="text-base">What they will see</CardTitle>
               <CardDescription className="text-sm">
                 Unsaved changes included, with a made-up member. Nothing about the real join is guessed
-                — only the tokens are filled in.
+                - only the tokens are filled in.
               </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-3">
@@ -245,7 +240,7 @@ export default function Welcome() {
                   </div>
                 </div>
               ) : (
-                <p className="text-xs text-muted-foreground">No card yet — the title and body are both empty.</p>
+                <p className="text-xs text-muted-foreground">No card yet - the title and body are both empty.</p>
               )}
               {Number(auto.welcome_delete_after_secs) > 0 ? (
                 <p className="text-xs text-muted-foreground">
@@ -277,7 +272,7 @@ export default function Welcome() {
             </CardHeader>
             <CardContent>
               <CardDescription className="text-sm">
-                Manage Roles for the roles above, and Send Messages in whichever channels you picked —
+                Manage Roles for the roles above, and Send Messages in whichever channels you picked -
                 plus Embed Links if you want the card, because a greeting without its embed is the
                 message and a bare colour bar you will not see. Nothing here is possible without them,
                 and the bot keeps the attempts in its log rather than guess.

@@ -1,6 +1,6 @@
 //! End-to-end HTTP tests: a real server on a real socket, a real SQLite file, and
-//! `reqwest` as the client. These are the tests that prove the *wiring* — auth,
-//! scopes, CSRF, rate limits, the error envelope, the outbox contract — which unit
+//! `reqwest` as the client. These are the tests that prove the *wiring* - auth,
+//! scopes, CSRF, rate limits, the error envelope, the outbox contract - which unit
 //! tests on the individual helpers cannot.
 //!
 //! Each test gets its own install (temp dir + database + server), so rate-limit
@@ -84,7 +84,7 @@ async fn public_endpoints_answer_and_nothing_leaks() {
         "the manifest lists the surface"
     );
 
-    // An unknown API path is a JSON error, never the SPA's index.html — otherwise a
+    // An unknown API path is a JSON error, never the SPA's index.html - otherwise a
     // typo in the dashboard looks like a successful page load.
     let (status, body) = site.get("/api/v1/guilds/nope/nothing").await;
     assert_eq!(status, 404);
@@ -157,7 +157,7 @@ async fn a_cookie_that_authenticates_nothing_is_cleared_by_the_refusal() {
     // The browser cannot drop an `HttpOnly` cookie, and every request will keep carrying it, so
     // a refusal that arrived *with* one has to answer with its deletion. Without this an install
     // that lost its key or revoked a session 401s forever, and the only fix is for somebody to
-    // find "clear site data" in a browser menu — which nobody suspects.
+    // find "clear site data" in a browser menu - which nobody suspects.
     let (status, _, headers) = site
         .exchange(
             "GET",
@@ -657,7 +657,6 @@ async fn settings_are_merged_validated_and_history_kept() {
         body["data"]["strike_threshold"], 0,
         "escalation is off until it is asked for"
     );
-    assert_eq!(body["data"]["dm_reason"], true);
     assert_eq!(body["data"]["purge_max"], 200);
 
     // A patch touches one field and the response is the whole normalised document.
@@ -674,18 +673,18 @@ async fn settings_are_merged_validated_and_history_kept() {
     assert_eq!(body["data"]["changed"], true);
     assert_eq!(body["data"]["settings"]["strike_threshold"], 3);
     assert_eq!(
-        body["data"]["settings"]["dm_reason"], true,
+        body["data"]["settings"]["purge_max"], 200,
         "an untouched field keeps its stored value"
     );
 
-    // Patching to the same value is a no-op that still answers 200 — the dashboard
+    // Patching to the same value is a no-op that still answers 200 - the dashboard
     // sends the whole form, so this must not look like a change (it would otherwise
     // grow the history table on every save).
     let (status, body) = site
         .browser(
             "PATCH",
             &mod_path,
-            Some(json!({"strike_threshold": 3, "dm_reason": true})),
+            Some(json!({"strike_threshold": 3})),
             Some(&cookie),
             Some(&csrf),
         )
@@ -1111,7 +1110,7 @@ async fn tickets_are_disabled_until_the_guild_turns_them_on() {
         "the transcript comes with it"
     );
     // Unknown guild: 404 from the guard. A *known* guild that does not own the ticket
-    // is also 404 (`load_ticket`), never 403 — the existence of somebody else's
+    // is also 404 (`load_ticket`), never 403 - the existence of somebody else's
     // ticket id is not information the dashboard should leak.
     let (status, _) = site
         .authed_get(
@@ -1519,7 +1518,7 @@ async fn the_sign_in_bounce_survives_the_static_layer() {
     // such page" by looking for `dist/<path>/index.html`, and `/auth/callback` is a *route*,
     // so the 303 the handler produced came back with its status replaced by 404. The browser
     // only follows 3xx, so every real sign-in failure showed the 404 document and the
-    // `Location` header — with the sentence in it — was never read. Unit tests passed because
+    // `Location` header - with the sentence in it - was never read. Unit tests passed because
     // they ran the router with `assets: None`.
     let env = TestEnv::new("bounce");
     let dist = env.write_dist();
@@ -1628,5 +1627,908 @@ async fn the_server_list_lists_the_administered_ones_and_offers_an_invite() {
     assert_eq!(
         status, 403,
         "the grant list is the boundary, not a display preference"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Round 12: the writes the dashboard makes, in the words the dashboard reads
+// ---------------------------------------------------------------------------
+
+/// The bug this test exists for: `POST /identity/avatar` stored its digest under a key the model
+/// does not have, and `normalize` answers an unknown key with a 400 - so uploading an avatar made
+/// every *later* profile save fail, with a message about a spelling nobody had typed. A staged
+/// avatar has to leave a document the next PATCH accepts.
+#[tokio::test]
+async fn a_staged_avatar_leaves_the_identity_document_savable() {
+    let env = TestEnv::new("identity-avatar");
+    ready(&env.state.db);
+    let (cookie, csrf) = env.session_cookie(1009, "ops", None);
+    let site = Site::with_env("identity-avatar".into(), env).await;
+    let guild = aerona_core::identity::Snowflake(GUILD_S.parse::<u64>().unwrap());
+    async fn patch(site: &Site, cookie: &str, csrf: &str, body: Value) -> (u16, Value) {
+        site.browser(
+            "PATCH",
+            &format!("/api/v1/guilds/{GUILD_S}/settings/identity"),
+            Some(body),
+            Some(cookie),
+            Some(csrf),
+        )
+        .await
+    }
+
+    // First a plain save, so the sequence starts where the report left it.
+    let (status, body) = patch(&site, &cookie, &csrf, json!({ "nick": "Aerona" })).await;
+    assert_eq!(status, 200, "{body}");
+
+    let png = "iVBORw0KGgoAAAANSUhEUg".repeat(48);
+    let (status, body) = site
+        .browser(
+            // A stage, not an apply: the route is `PUT`, because the bytes wait for the worker
+            // rather than going to Discord on the request.
+            "PUT",
+            &format!("/api/v1/guilds/{GUILD_S}/identity/avatar"),
+            Some(json!({ "data": format!("data:image/png;base64,{png}") })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["data"]["staged"], true);
+    let hash = body["data"]["hash"].as_str().unwrap().to_string();
+    assert!(hash.starts_with("sha256:"), "{hash}");
+
+    // The save that used to answer 400.
+    let (status, body) = patch(&site, &cookie, &csrf, json!({ "bio": "here to help" })).await;
+    assert_eq!(
+        status, 200,
+        "an identity save after staging an avatar must work: {body}"
+    );
+
+    let doc: Value = site
+        .db()
+        .settings(guild, aerona_core::models::Feature::Identity)
+        .unwrap();
+    assert_eq!(doc["nick"], "Aerona", "{doc}");
+    assert_eq!(doc["avatar_hash"], hash.clone(), "{doc}");
+    assert!(
+        doc.get("avatarHash").is_none(),
+        "the row stores the model's own name: {doc}"
+    );
+    assert!(
+        doc.get("avatar")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .is_empty(),
+        "the bytes never land in the document: {doc}"
+    );
+
+    // Clearing goes through the same door and leaves a null, not a leftover hash.
+    let (status, body) = site
+        .browser(
+            "DELETE",
+            &format!("/api/v1/guilds/{GUILD_S}/identity/avatar"),
+            None,
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let doc: Value = site
+        .db()
+        .settings(guild, aerona_core::models::Feature::Identity)
+        .unwrap();
+    assert!(doc["avatar_hash"].is_null(), "{doc}");
+    assert_eq!(doc["bio"], "here to help", "{doc}");
+}
+
+/// A link button Discord would refuse is dropped rather than stored: one bad button fails the whole
+/// ticket open, so a typo must not be able to switch the feature off for everyone.
+#[tokio::test]
+async fn ticket_link_buttons_are_cleaned_deduped_and_cut_to_five() {
+    let env = TestEnv::new("ticket-links");
+    ready(&env.state.db);
+    let (cookie, csrf) = env.session_cookie(1009, "ops", None);
+    let site = Site::with_env("ticket-links".into(), env).await;
+    let guild = aerona_core::identity::Snowflake(GUILD_S.parse::<u64>().unwrap());
+    let long = "x".repeat(120);
+    let links = json!([
+        { "label": "Rules", "url": "https://example.com/rules" },
+        { "label": "Rules", "url": "https://example.com/rules" },
+        { "label": "Status", "url": "https://status.example.com/" },
+        { "label": long.as_str(), "url": "https://example.com/long" },
+        { "label": "FTP", "url": "ftp://example.com/nope" },
+        { "label": "Open", "url": "https://example.com/open" },
+        { "label": "Sixth", "url": "https://example.com/sixth" },
+        { "label": "Seventh", "url": "https://example.com/seventh" },
+    ]);
+    let (status, body) = site
+        .browser(
+            "PATCH",
+            &format!("/api/v1/guilds/{GUILD_S}/settings/tickets"),
+            Some(
+                json!({ "links": links, "close_label": "Close ticket", "claim_label": "Take it" }),
+            ),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let doc: Value = site
+        .db()
+        .settings(guild, aerona_core::models::Feature::Tickets)
+        .unwrap();
+    let kept = doc["links"].as_array().expect("a list of links");
+    assert_eq!(kept.len(), 5, "six usable lines, five buttons: {kept:?}");
+    let urls: Vec<&str> = kept.iter().map(|l| l["url"].as_str().unwrap()).collect();
+    assert_eq!(
+        &urls[..3],
+        [
+            "https://example.com/rules",
+            "https://status.example.com/",
+            "https://example.com/long"
+        ],
+        "the order the operator wrote, with the duplicate gone: {urls:?}"
+    );
+    assert!(
+        !urls.iter().any(|u| u.contains("nope")),
+        "an unusable scheme: {urls:?}"
+    );
+    assert!(
+        !urls.iter().any(|u| u.ends_with("seventh")),
+        "Discord's row holds five: {urls:?}"
+    );
+    assert_eq!(
+        urls.len(),
+        urls.iter().collect::<std::collections::HashSet<_>>().len(),
+        "{urls:?}"
+    );
+    assert_eq!(
+        kept[2]["label"].as_str().unwrap().chars().count(),
+        40,
+        "{kept:?}"
+    );
+    // Wording that repeats the built-in one is stored as "no change", so the default stays
+    // recognisable as the default.
+    assert_eq!(doc["close_label"], "", "{doc}");
+    assert_eq!(doc["claim_label"], "Take it", "{doc}");
+}
+
+/// A sticky is allowed to be written here, with an embed and no Discord message behind it, and it
+/// is posted immediately instead of waiting for `everyMessages` lines of chatter.
+#[tokio::test]
+async fn a_sticky_can_be_written_here_and_is_posted_at_once() {
+    let env = TestEnv::new("sticky-author");
+    ready(&env.state.db);
+    let (cookie, csrf) = env.session_cookie(1009, "ops", None);
+    let site = Site::with_env("sticky-author".into(), env).await;
+
+    let (status, body) = site
+        .browser(
+            "POST",
+            &format!("/api/v1/guilds/{GUILD_S}/stickies"),
+            Some(json!({ "channel": "1" })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 400, "nothing to post is not a sticky: {body}");
+
+    let (status, body) = site
+        .browser(
+            "POST",
+            &format!("/api/v1/guilds/{GUILD_S}/stickies"),
+            Some(json!({
+                "channel": "1",
+                "embed_title": "Read this first",
+                "embed_body": "line one\nline two",
+                "embed_color": 0xff_aa_00,
+                "everyMessages": 30,
+            })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 201, "{body}");
+    let id = body["data"]["id"].as_i64().expect("an id");
+    assert!(
+        body["data"]["queued"].as_i64().is_some(),
+        "the post is queued: {body}"
+    );
+    let row = &body["data"]["stickies"].as_array().unwrap()[0];
+    assert_eq!(row["message_id"], "0", "no anchor: {row}");
+    assert_eq!(row["embed_title"], "Read this first", "{row}");
+    assert_eq!(
+        row["embed_body"], "line one\nline two",
+        "a sticky keeps its lines: {row}"
+    );
+    assert_eq!(row["content"], "", "an embed alone is a sticky: {row}");
+    assert_eq!(row["embed_color"], 0xff_aa_00, "{row}");
+    assert_eq!(row["every_messages"], 30, "{row}");
+
+    // Writing the same thing again updates the row rather than stacking a second sticky.
+    let (status, body) = site
+        .browser(
+            "POST",
+            &format!("/api/v1/guilds/{GUILD_S}/stickies"),
+            Some(json!({ "channel": "1", "message": "500", "content": "same anchor, new note" })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 201, "{body}");
+    let (status, list) = site
+        .browser(
+            "GET",
+            &format!("/api/v1/guilds/{GUILD_S}/stickies"),
+            None,
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{list}");
+    let rows = list["data"]["stickies"].as_array().unwrap();
+    assert_eq!(
+        rows.len(),
+        2,
+        "an anchored one and an unanchored one: {rows:?}"
+    );
+    assert!(
+        rows.iter().any(|r| r["id"] == json!(id)),
+        "the first survives: {rows:?}"
+    );
+    assert!(
+        rows.iter().any(|r| r["channel_id"] == json!("1")),
+        "rows name their channel: {rows:?}"
+    );
+}
+
+/// A ticket type is not a row in a table until the button exists in Discord, so the write that
+/// creates it also queues the post, and deleting it queues a redraw of the board.
+#[tokio::test]
+async fn a_ticket_type_is_a_button_not_only_a_row() {
+    let env = TestEnv::new("ticket-panels");
+    ready(&env.state.db);
+    let (cookie, csrf) = env.session_cookie(1009, "ops", None);
+    let site = Site::with_env("ticket-panels".into(), env).await;
+
+    let (status, body) = site
+        .browser(
+            "POST",
+            &format!("/api/v1/guilds/{GUILD_S}/ticket-panels"),
+            Some(json!({
+                "channel": "7",
+                "label": "Report a player",
+                "emoji": "🚩",
+                "color": 0xe7_3c_88,
+                "subject": "player report",
+                "intro": "Say who and when. {user} {ticket} work here.",
+            })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 201, "{body}");
+    let id = body["data"]["id"].as_i64().expect("an id");
+    let poll = body["data"]["queued"]
+        .as_i64()
+        .expect("a queued outbox row");
+    let row = &body["data"]["panels"].as_array().unwrap()[0];
+    assert_eq!(row["label"], "Report a player", "{row}");
+    assert_eq!(row["color"], 0xe7_3c_88, "{row}");
+    assert_eq!(
+        row["message_id"], "0",
+        "unbound until the bot posts it: {row}"
+    );
+    assert_eq!(
+        row["intro"], "Say who and when. {user} {ticket} work here.",
+        "{row}"
+    );
+
+    let (status, out) = site
+        .authed_get(&format!("/api/v1/outbox/{poll}"), &cookie)
+        .await;
+    assert_eq!(status, 200, "{out}");
+    assert_eq!(out["data"]["action"], "panel.post", "{out}");
+
+    let (status, body) = site
+        .browser(
+            "GET",
+            &format!("/api/v1/guilds/{GUILD_S}/ticket-panels"),
+            None,
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["data"]["panels"].as_array().unwrap().len(),
+        1,
+        "{body}"
+    );
+
+    let (status, body) = site
+        .browser(
+            "DELETE",
+            &format!("/api/v1/guilds/{GUILD_S}/ticket-panels/{id}"),
+            None,
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = site
+        .browser(
+            "GET",
+            &format!("/api/v1/guilds/{GUILD_S}/ticket-panels"),
+            None,
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(
+        body["data"]["panels"].as_array().unwrap().len(),
+        0,
+        "{body}"
+    );
+    assert_eq!(status, 200);
+}
+
+/// The banner is the avatar's problem all over again: bytes that must not enter the settings
+/// document, a digest that must, and a profile that has to stay savable afterwards. Half of RED-13
+/// was "the next save 400s", so this test is that same save after a *banner* stage - and it is the
+/// one test that would have caught a second handler written without the `normalize` call.
+#[tokio::test]
+async fn a_staged_banner_leaves_the_identity_document_savable() {
+    let env = TestEnv::new("identity-banner");
+    ready(&env.state.db);
+    let (cookie, csrf) = env.session_cookie(1009, "ops", None);
+    let site = Site::with_env("identity-banner".into(), env).await;
+    let guild = aerona_core::identity::Snowflake(GUILD_S.parse::<u64>().unwrap());
+    async fn patch(site: &Site, cookie: &str, csrf: &str, body: Value) -> (u16, Value) {
+        site.browser(
+            "PATCH",
+            &format!("/api/v1/guilds/{GUILD_S}/settings/identity"),
+            Some(body),
+            Some(cookie),
+            Some(csrf),
+        )
+        .await
+    }
+
+    let png = "iVBORw0KGgoAAAANSUhEUg".repeat(64);
+    let (status, body) = site
+        .browser(
+            "PUT",
+            &format!("/api/v1/guilds/{GUILD_S}/identity/banner"),
+            Some(json!({ "data": format!("data:image/png;base64,{png}") })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["data"]["staged"], true);
+    let hash = body["data"]["hash"].as_str().unwrap().to_string();
+    assert!(hash.starts_with("sha256:"), "{hash}");
+
+    let (status, body) = patch(&site, &cookie, &csrf, json!({ "bio": "quiet and useful" })).await;
+    assert_eq!(
+        status, 200,
+        "a banner stage must not lock the profile: {body}"
+    );
+
+    let doc: Value = site
+        .db()
+        .settings(guild, aerona_core::models::Feature::Identity)
+        .unwrap();
+    assert_eq!(doc["banner_hash"], hash, "{doc}");
+    assert!(
+        doc["avatar_hash"].is_null(),
+        "the banner slot must not write into the avatar's: {doc}"
+    );
+    assert!(
+        doc["bio"].as_str().unwrap_or_default().contains("quiet"),
+        "{doc}"
+    );
+
+    // And clearing it is a write, not a deletion of the row: the digest goes, the bytes were
+    // never there, and the apply is told to send a null.
+    let (status, body) = site
+        .browser(
+            "DELETE",
+            &format!("/api/v1/guilds/{GUILD_S}/identity/banner"),
+            None,
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let doc: Value = site
+        .db()
+        .settings(guild, aerona_core::models::Feature::Identity)
+        .unwrap();
+    assert!(
+        doc.get("banner_hash").is_none() || doc["banner_hash"].is_null(),
+        "the cleared digest is gone from the document: {doc}"
+    );
+    let staged = site
+        .db()
+        .guild_report(guild, "banner-pending")
+        .unwrap()
+        .expect("the clear is queued as an instruction");
+    assert_eq!(staged["clear"], true, "{staged}");
+}
+
+/// A decoration id is the one cosmetic Discord will not list for a bot, so the field is a bare id
+/// - which makes the shape the only thing the API can check. It checks it in `normalize`, the place
+/// every other identity field is checked, and the panel gets a 400 with the field named rather than
+/// a save that Discord refuses ten seconds later in an outbox row nobody is reading.
+#[tokio::test]
+async fn a_decoration_is_validated_where_the_rest_of_the_profile_is() {
+    let env = TestEnv::new("identity-deco");
+    ready(&env.state.db);
+    let (cookie, csrf) = env.session_cookie(1009, "ops", None);
+    let site = Site::with_env("identity-deco".into(), env).await;
+    let guild = aerona_core::identity::Snowflake(GUILD_S.parse::<u64>().unwrap());
+    async fn put_deco(site: &Site, cookie: &str, csrf: &str, body: Value) -> (u16, Value) {
+        site.browser(
+            "PUT",
+            &format!("/api/v1/guilds/{GUILD_S}/identity/deco"),
+            Some(body),
+            Some(cookie),
+            Some(csrf),
+        )
+        .await
+    }
+
+    let (status, body) = put_deco(
+        &site,
+        &cookie,
+        &csrf,
+        json!({ "avatar_decoration_id": "not-an-id" }),
+    )
+    .await;
+    assert_eq!(status, 400, "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("digits"),
+        "the refusal names what is wrong: {body}"
+    );
+
+    let (status, body) = put_deco(
+        &site,
+        &cookie,
+        &csrf,
+        json!({ "avatar_decoration_id": " 1207328054057771069 ", "banner_decoration_id": "" }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let doc: Value = site
+        .db()
+        .settings(guild, aerona_core::models::Feature::Identity)
+        .unwrap();
+    assert_eq!(
+        doc["avatar_decoration_id"], "1207328054057771069",
+        "spaces are trimmed on the way in: {doc}"
+    );
+    assert_eq!(
+        doc["banner_decoration_id"], "",
+        "an empty string is the clear, and it is kept as one: {doc}"
+    );
+
+    // The apply is what sends it. A save that queues nothing is a save that changes a row and
+    // leaves the bot looking exactly as it did.
+    let queued = body["data"]["queued"].as_i64().expect("an outbox row");
+    assert!(queued > 0, "{body}");
+    let (status, out) = site
+        .authed_get(&format!("/api/v1/outbox/{queued}"), &cookie)
+        .await;
+    assert_eq!(status, 200, "{out}");
+    assert_eq!(out["data"]["action"], "identity.apply", "{out}");
+}
+
+/// `repost` used to be a sticky setting; the behaviour is now the only behaviour. A document saved
+/// while the switch existed still carries the key, and an unknown key is a 400 - so without
+/// retiring it on the way in, *every* later save of the stickies page would be refused because of a
+/// word nobody is typing. That is RED-13's bug met from the other side.
+#[tokio::test]
+async fn a_sticky_document_from_before_the_switch_went_away_still_saves() {
+    let env = TestEnv::new("sticky-retire");
+    ready(&env.state.db);
+    let (cookie, csrf) = env.session_cookie(1009, "ops", None);
+    let guild = aerona_core::identity::Snowflake(GUILD_S.parse::<u64>().unwrap());
+    env.state
+        .db
+        .put_settings(
+            guild,
+            aerona_core::models::Feature::Sticky,
+            &json!({
+                "enabled": true,
+                "cooldown_secs": 60,
+                "max_per_channel": 3,
+                "repost": false,
+            }),
+            None,
+        )
+        .unwrap();
+    let site = Site::with_env("sticky-retire".into(), env).await;
+
+    let (status, body) = site
+        .browser(
+            "PATCH",
+            &format!("/api/v1/guilds/{GUILD_S}/settings/sticky"),
+            Some(json!({ "cooldown_secs": 75 })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["data"]["settings"]["cooldown_secs"], 75);
+    assert!(
+        body["data"]["settings"].get("repost").is_none(),
+        "the retired key leaves the document on the next write: {}",
+        body["data"]["settings"]
+    );
+
+    // The tolerance is scoped to the keys a model says it used to have. Anything else is still
+    // refused, which is the whole reason a typo cannot masquerade as a saved setting.
+    let (status, body) = site
+        .browser(
+            "PATCH",
+            &format!("/api/v1/guilds/{GUILD_S}/settings/sticky"),
+            Some(json!({ "cooldown_secs_2": 5 })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 400, "an invented key is still a refusal: {body}");
+}
+
+/// The Tickets page gets one channel for the board, and pressing Save is what puts it there - not
+/// a setting the worker may honour some day. A type with no channel of its own goes to the same
+/// place, so the page can hold one choice instead of one per row.
+#[tokio::test]
+async fn the_ticket_channel_is_where_the_board_goes() {
+    let env = TestEnv::new("ticket-channel");
+    ready(&env.state.db);
+    let (cookie, csrf) = env.session_cookie(1009, "ops", None);
+    let site = Site::with_env("ticket-channel".into(), env).await;
+
+    let (status, body) = site
+        .browser(
+            "PATCH",
+            &format!("/api/v1/guilds/{GUILD_S}/settings/tickets"),
+            Some(json!({ "enabled": true, "board_channel_id": "7" })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["data"]["settings"]["board_channel_id"], "7");
+    let queued = body["data"]["queued"]
+        .as_i64()
+        .expect("a queued board post");
+    let (status, out) = site
+        .authed_get(&format!("/api/v1/outbox/{queued}"), &cookie)
+        .await;
+    assert_eq!(status, 200, "{out}");
+    assert_eq!(out["data"]["action"], "panel.redraw", "{out}");
+    assert_eq!(out["data"]["args"]["channel"], "7", "{out}");
+
+    let (status, body) = site
+        .browser(
+            "POST",
+            &format!("/api/v1/guilds/{GUILD_S}/ticket-panels"),
+            Some(json!({ "label": "Ask about a bill" })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 201, "{body}");
+    assert_eq!(
+        body["data"]["panels"][0]["channel_id"], "7",
+        "a type with no channel goes where the board lives: {}",
+        body["data"]["panels"]
+    );
+
+    // And with no channel anywhere, the refusal says what to do about it rather than naming a
+    // field the operator never looked at.
+    let (status, body) = site
+        .browser(
+            "PATCH",
+            &format!("/api/v1/guilds/{GUILD_S}/settings/tickets"),
+            Some(json!({ "board_channel_id": null })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = site
+        .browser(
+            "POST",
+            &format!("/api/v1/guilds/{GUILD_S}/ticket-panels"),
+            Some(json!({ "label": "Nowhere to go" })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 400, "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no ticket channel is set"),
+        "the refusal says what to do: {body}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Minecraft cape notifier
+// ---------------------------------------------------------------------------
+
+/// A cape row as the worker would write one, with frames made of ASCII so a test can compare the
+/// body byte for byte: `send` reads a response as text, and real png bytes do not survive that.
+fn cape_release(page_id: u64, title: &str, frames: usize) -> aerona_core::db::capes::NewCape {
+    let page = aerona_core::cape::CapePage {
+        title: title.into(),
+        page_id: page_id as i64,
+        last_rev: 900,
+        url: format!("https://minecraft.wiki/w/{title}"),
+    };
+    let mut new = aerona_core::db::capes::NewCape::from_page(&page, false);
+    new.render_kind = "drape".into();
+    new.texture_file = format!("File:{title} (texture) JE.png");
+    new.frames = (0..frames)
+        .map(|i| format!("frame-{i}").into_bytes())
+        .collect();
+    new
+}
+
+/// The cape page is a read of the worker's own tables, and the only thing the panel may cause is
+/// another look. Both halves are asserted here because each is a temptation: a `GET` that asked
+/// minecraft.wiki would put a third-party request on the public port, and a `POST` that did the
+/// same would be a denial-of-service tool with a settings page attached.
+#[tokio::test]
+async fn the_cape_page_shows_what_the_worker_found_and_asks_for_a_look() {
+    let env = TestEnv::new("capes");
+    ready(&env.state.db);
+    let guild = aerona_core::identity::Snowflake(GUILD_S.parse::<u64>().unwrap());
+    let (cookie, csrf) = env.session_cookie(1009, "ops", None);
+    // Two frames on one cape and none on the other: a cape with no artwork is still a cape.
+    env.state
+        .db
+        .remember_cape(guild, &cape_release(42, "Aurora Cape", 2))
+        .unwrap();
+    env.state
+        .db
+        .remember_cape(guild, &cape_release(7, "Spade Cape", 0))
+        .unwrap();
+    let site = Site::with_env("capes".into(), env).await;
+
+    let (status, body) = site
+        .authed_get(&format!("/api/v1/guilds/{GUILD_S}/capes"), &cookie)
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let data = &body["data"];
+    assert_eq!(
+        data["config"]["enabled"], false,
+        "nothing has been saved yet, so the defaults answer: {data}"
+    );
+    assert_eq!(
+        data["config"]["check_every_minutes"], 20,
+        "the default is the one the notifier can actually afford: one request per pass for a guild \
+         that has seen everything"
+    );
+    assert_eq!(data["frames"], 4, "the renderer makes four angles");
+    assert!(data["channel"].is_null(), "no channel is set: {data}");
+    assert!(
+        data["nextCheck"].is_null(),
+        "this server has never been polled, so there is no schedule to show: {data}"
+    );
+    assert_eq!(data["lastCheck"], 0);
+
+    assert_eq!(
+        data["status"], "the source has not answered a poll yet",
+        "a server with no report is told that, rather than shown a pass with nothing in it: {data}"
+    );
+    assert!(data["error"].is_null(), "{data}");
+
+    let rows = data["releases"].as_array().expect("a list");
+    assert_eq!(rows.len(), 2, "{rows:?}");
+    let aurora = rows
+        .iter()
+        .find(|r| r["slug"] == "mw42")
+        .expect("the cape the worker recorded");
+    assert_eq!(aurora["name"], "Aurora Cape", "{aurora}");
+    assert_eq!(
+        aurora["article_url"], "https://minecraft.wiki/w/Aurora Cape",
+        "the link is the one the source handed back, spelled here: {aurora}"
+    );
+    assert_eq!(aurora["render_kind"], "drape");
+    assert_eq!(aurora["frames"], 2);
+    assert_eq!(aurora["has_render"], true);
+    assert_eq!(
+        aurora["frameUrl"],
+        json!(format!(
+            "/api/v1/guilds/{GUILD_S}/capes/mw42/frame/{}",
+            aerona_core::cape::HERO_FRAME
+        )),
+        "the panel is handed the hero angle rather than told to guess one, and the angle is the \
+         renderer's constant - which turned view is worth a message is the drawing code's business, \
+         not the route's"
+    );
+    let spade = rows
+        .iter()
+        .find(|r| r["slug"] == "mw7")
+        .expect("the other cape");
+    assert_eq!(
+        spade["frameUrl"],
+        Value::Null,
+        "a cape with no picture has no image url to be broken: {spade}"
+    );
+    assert_eq!(spade["has_render"], false);
+
+    // The stored bytes, with the headers a panel needs to draw them inline.
+    let (status, body, headers) = site
+        .exchange(
+            "GET",
+            aurora["frameUrl"].as_str().expect("a url"),
+            None,
+            &[("cookie", cookie.clone())],
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["raw"],
+        format!("frame-{}", aerona_core::cape::HERO_FRAME),
+        "the frame the renderer says is the hero, not whatever index it happened to land on"
+    );
+    assert_eq!(
+        headers
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default(),
+        "image/png"
+    );
+    let cache = headers
+        .get(axum::http::header::CACHE_CONTROL)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or_default()
+        .to_string();
+    assert!(
+        cache.contains("no-store"),
+        "a render is served behind a session, so the shared-cache rule holds for it too: {cache}"
+    );
+
+    // A frame that is not there answers in words. This is the case where an operator wonders why a
+    // row has no picture, and a 404 with no sentence would leave them guessing about a bug.
+    let (status, body) = site
+        .authed_get(
+            &format!("/api/v1/guilds/{GUILD_S}/capes/mw42/frame/7"),
+            &cookie,
+        )
+        .await;
+    assert_eq!(status, 400, "{body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("without a render"),
+        "the refusal says why: {body}"
+    );
+
+    // Saving the page clamps what the worker refuses to do and rejects what it does not model.
+    let (status, body) = site
+        .browser(
+            "PATCH",
+            &format!("/api/v1/guilds/{GUILD_S}/settings/capes"),
+            Some(json!({
+                "enabled": true,
+                "channel_id": "777",
+                "ping_role_id": "888",
+                "check_every_minutes": 1,
+                "show_render": true,
+                "embed_color": 4294967295_u64,
+            })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let cfg = &body["data"]["settings"];
+    assert_eq!(
+        cfg["check_every_minutes"], 15,
+        "a one-minute poll is cut to the interval that is worth having: {cfg}"
+    );
+    assert_eq!(cfg["embed_color"], 16_777_215, "a colour is 24 bits: {cfg}");
+    assert_eq!(cfg["channel_id"], "777");
+    assert_eq!(cfg["ping_role_id"], "888");
+
+    let (status, body) = site
+        .authed_get(&format!("/api/v1/guilds/{GUILD_S}/capes"), &cookie)
+        .await;
+    assert_eq!(status, 200, "{body}");
+    let data = &body["data"];
+    assert_eq!(data["config"]["enabled"], true);
+    assert_eq!(data["channel"]["id"], "777");
+    assert!(
+        data["channel"]["name"].is_null(),
+        "the worker has not reported this server's channels, so the id is what there is: {data}"
+    );
+    assert_eq!(data["pingRole"]["id"], "888");
+
+    // A typo is a refusal rather than a silent nothing, which is how every settings page behaves
+    // and why the notifier can trust the document it reads.
+    let (status, body) = site
+        .browser(
+            "PATCH",
+            &format!("/api/v1/guilds/{GUILD_S}/settings/capes"),
+            Some(json!({ "ping_role": "8" })),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 400, "an invented key is still a refusal: {body}");
+    assert!(
+        body["error"]["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("ping_role"),
+        "{body}"
+    );
+
+    // What the worker said about its last pass is the sentence the panel prints, word for word.
+    site.db()
+        .put_guild_report(
+            guild,
+            "capes",
+            &json!({ "pages": 60, "recorded": 2, "waiting": 4, "stuck": 1, "error": null }),
+        )
+        .unwrap();
+    let (status, body) = site
+        .authed_get(&format!("/api/v1/guilds/{GUILD_S}/capes"), &cookie)
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        body["data"]["status"],
+        "60 pages looked at, 2 recorded, 4 waiting for the next look, \
+         1 not posted after 5 tries - check the channel",
+        "one wording for one event, written by the process that saw it: {body}"
+    );
+    assert!(body["data"]["error"].is_null(), "{body}");
+
+    // And asking for a look now is a stamp, not a fetch.
+    let (status, body) = site
+        .browser(
+            "POST",
+            &format!("/api/v1/guilds/{GUILD_S}/capes/check"),
+            Some(json!({})),
+            Some(&cookie),
+            Some(&csrf),
+        )
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["data"]["queued"], true);
+    assert!(
+        body["data"]["note"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("next pass"),
+        "the button says when it happens: {body}"
+    );
+    let (last, seeded) = site.db().cape_state(guild).unwrap();
+    assert_eq!(last, 0, "the stamp is what the tick compares against");
+    assert!(seeded, "a first look by hand records without pinging");
+    let (status, body) = site
+        .authed_get(&format!("/api/v1/audit?guild={GUILD_S}&limit=20"), &cookie)
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        body["data"]["entries"]
+            .as_array()
+            .map(|rows| rows.iter().any(|a| a["action"] == "cape.check"))
+            .unwrap_or(false),
+        "asking for a poll is written down, because it is a thing the bot will go do: {body}"
     );
 }

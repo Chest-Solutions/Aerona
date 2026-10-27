@@ -18,6 +18,16 @@ export default defineConfig({
     assetsInlineLimit: 2048,
     // Vite 8 builds with rolldown, which only accepts a function here; its own
     // chunking already splits react and motion out, so nothing is overridden.
+    //
+    // One stylesheet, on purpose. With the default `cssCodeSplit`, each lazily loaded chunk gets its
+    // own `assets/<chunk>-<hash>.css`, and the runtime reaches it through `__vitePreload`, which
+    // injects a `<link>` at route-change time and logs "Unable to preload CSS" when that one request
+    // fails. So a single lost 13 KB file cost a guild page its entire styling, silently, with a
+    // console line as the only trace - while the JS for the same chunk arrived fine. The styles are
+    // 148 KB together, the panel is one page, and a `<link>` in the document is fetched by the
+    // browser's own loader: no preload machinery, no second chance to fail, no route that can come up
+    // unstyled.
+    cssCodeSplit: false,
   },
   ssr: { noExternal: ['framer-motion'] },
   server: {

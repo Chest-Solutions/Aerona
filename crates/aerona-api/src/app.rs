@@ -110,7 +110,7 @@ pub fn router(state: AppState, assets: Option<StaticAssets>) -> Router {
         .merge(crate::routes::guild::routes())
         .merge(crate::routes::account::routes())
         // An unmatched /api/v1 path must answer with the error envelope, never with
-        // the dashboard HTML — an SPA fallback on an API path turns a typo into a
+        // the dashboard HTML - an SPA fallback on an API path turns a typo into a
         // confusing 200.
         .fallback(api_not_found);
 
@@ -130,7 +130,7 @@ pub fn router(state: AppState, assets: Option<StaticAssets>) -> Router {
         Some(assets) => {
             // An unmatched path is *not* rewritten onto `index.html`. Every route of
             // this site is prerendered, so a client-side catch-all would only turn a
-            // typo, a stale link or a traversal probe into a 200 with the home page —
+            // typo, a stale link or a traversal probe into a 200 with the home page -
             // a soft 404, which is worse for a crawler than a real one and worse for
             // an operator debugging a broken link. The prerendered `/404/` page is
             // served instead, with the status kept at 404 (see `static_headers`).
@@ -145,10 +145,10 @@ pub fn router(state: AppState, assets: Option<StaticAssets>) -> Router {
             };
             // The client's own routes get the app *shell*: the template, an empty `#root`, none
             // of the root page's markup. `/guild/123/tickets` has no file because its URL carries
-            // a server id — the router inside the bundle is what knows that page exists. Handing
+            // a server id - the router inside the bundle is what knows that page exists. Handing
             // it `index.html` instead (the previous choice, and the reason every deep link logged
             // a recovered hydration mismatch) means hydrating a guild page against the prerendered
-            // server list: React notices, throws the HTML away and mounts — so the page does work,
+            // server list: React notices, throws the HTML away and mounts - so the page does work,
             // but each visit pays a discarded first paint plus a console error nobody can act on.
             // The empty root is the case the client is written for. `shell.html` is the same
             // template with its slots left unfilled, so it cannot go stale the way a copy of a
@@ -176,7 +176,7 @@ pub fn router(state: AppState, assets: Option<StaticAssets>) -> Router {
 
 /// The API's own heartbeat and hourly retention, in one task.
 ///
-/// The snapshot is written under process `"api"` — a *separate* record from the bot's,
+/// The snapshot is written under process `"api"` - a *separate* record from the bot's,
 /// because a stalled dashboard process must not look like a stalled bot and vice
 /// versa. `wsLatencyMs` is copied from the freshest bot status so the dashboard can
 /// graph "API up, gateway latency" without a second query.
@@ -242,7 +242,7 @@ async fn api_not_found() -> Response {
     respond::error_response(&Error::NotFound("endpoint"))
 }
 
-/// Shown when the API is up but nobody has run the dashboard build yet — the
+/// Shown when the API is up but nobody has run the dashboard build yet - the
 /// single most likely first-run state for someone who cloned this repo.
 async fn dist_missing() -> Response {
     let body = "Aerona API is running, but the dashboard bundle was not found.\n\
@@ -257,19 +257,31 @@ async fn dist_missing() -> Response {
         .unwrap_or_else(|_| axum::response::Response::new(axum::body::Body::empty()))
 }
 
-/// Whether this URL names a build artifact with its content baked into its name, i.e.
-/// `/assets/<stem>-<8+ alphanumerics>.<ext>` — vite's `[hash]` is base64-ish, so more than hex is
-/// accepted. Deliberately strict about the rest: `logo-2.png` gets no forever-promise, because
-/// that `2` is a number a human bumps rather than a digest.
+/// Whether this URL names a build artifact with its content baked into its name: `/assets/` plus a
+/// stem whose first hyphen is followed by a run of eight or more url-safe characters, plus any
+/// extension. The folder is part of the contract - everything in `dist/assets/` is output of one
+/// build - and the rest is deliberately strict, so `logo-2.png` gets no forever-promise: that `2` is
+/// a number a human bumps, not a digest.
+///
+/// Two details of the real alphabet are the whole function. Rolldown's and vite's hashes are
+/// url-safe base64, so `-` and `_` appear as often as letters: restricting the digest to
+/// alphanumerics made a year of caching depend on which characters a build happened to roll, and
+/// only the unpinned case ever shows up in a panel's headers. And the split is at the *first* hyphen
+/// rather than the last, because a digest can itself end in `-` (`rolldown-runtime-WkwZ5CU-.js`),
+/// where the final hyphen is part of the hash and not the separator.
 fn is_fingerprinted(path: &str) -> bool {
     let Some(file) = path.strip_prefix("/assets/").filter(|f| !f.contains('/')) else {
         return false;
     };
     let stem = file.split('.').next().unwrap_or_default();
-    let Some((before, hash)) = stem.rsplit_once('-') else {
+    let Some((before, digest)) = stem.split_once('-') else {
         return false;
     };
-    !before.is_empty() && hash.len() >= 8 && hash.bytes().all(|b| b.is_ascii_alphanumeric())
+    !before.is_empty()
+        && digest.len() >= 8
+        && digest
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
 
 /// A panic inside a handler must not take the process down or leak a backtrace.
@@ -331,8 +343,8 @@ async fn gate(State(state): State<AppState>, mut req: Request, next: Next) -> Re
         }
     };
     // A 401 that *carried* a session cookie means that cookie is nobody's session: expired,
-    // revoked, or minted before `AERONA_MASTER_KEY` changed. The browser cannot notice —
-    // `HttpOnly` is the point — so without this the install keeps refusing a request the
+    // revoked, or minted before `AERONA_MASTER_KEY` changed. The browser cannot notice -
+    // `HttpOnly` is the point - so without this the install keeps refusing a request the
     // operator cannot fix except by finding "clear site data" themselves. The refusal is what
     // drops it, and the next sign-in writes a fresh one.
     if carried_session && resp.status() == StatusCode::UNAUTHORIZED {
@@ -398,7 +410,7 @@ async fn static_headers(State(state): State<AppState>, req: Request, next: Next)
     // handed straight back: `gate` already authenticated, metered, decorated and
     // decided the status of that request, and a static-root question ("does
     // `dist/api/v1/manifest` exist?") has no bearing on it. Answering here would turn
-    // every endpoint into a 404 the moment its file is not on disk — which is exactly
+    // every endpoint into a 404 the moment its file is not on disk - which is exactly
     // what this function's own test caught.
     if path.starts_with("/api/") {
         return next.run(req).await;
@@ -430,6 +442,19 @@ async fn static_headers(State(state): State<AppState>, req: Request, next: Next)
     let owned_by_the_router = crate::routes::system::ROOT_PATHS.iter().any(|p| *p == path)
         || crate::routes::system::owned_by_client_router(&path);
     if !owned_by_the_router && !static_hit(&state.cfg.static_dir, &path) {
+        // A missing *asset* is not a mistyped URL. The only links to `/assets/<name>-<hash>.js` are
+        // the ones inside our own bundle, so a 404 there means the tree being served is not the tree
+        // that was built: a deploy that copied `index.html` and not `assets/`, an unpack that skipped
+        // a file, a stale `AERONA_STATIC_DIR`. The browser gives up with one console line ("Unable to
+        // preload CSS for ...") and the page comes up half-styled, which is a support ticket nobody can
+        // read. Say the rest of it here, where the answer actually is: which name, and which root.
+        if path.starts_with("/assets/") {
+            tracing::warn!(
+                path = %path,
+                root = %state.cfg.static_dir.display(),
+                "an asset named by the bundle is not in the static root"
+            );
+        }
         if !wants_document {
             return respond::error_response(&Error::NotFound("path"));
         }
@@ -444,13 +469,13 @@ async fn static_headers(State(state): State<AppState>, req: Request, next: Next)
     cache_and_finish(&state, &path, resp)
 }
 
-/// A *fingerprinted* file name may be cached forever; nothing else may, and HTML never is — a
+/// A *fingerprinted* file name may be cached forever; nothing else may, and HTML never is - a
 /// moderation page that went stale in a proxy shows an operator the wrong state.
 ///
 /// The test is the name, not the folder. `/assets/Guild-DCQ76Tg3.js` cannot change content
 /// without changing URL, so a year is free. A replaced `/favicon.png` or `/theme-boot.js` keeps
 /// its name and would stay invisible for a year on every machine that had already loaded it: the
-/// "I redeployed and nothing changed" bug, and it was ours — this function handed `immutable` to
+/// "I redeployed and nothing changed" bug, and it was ours - this function handed `immutable` to
 /// any 200 that was not HTML. Un-hashed files now get no promise from us and the browser
 /// revalidates against the `ETag`/`Last-Modified` that `ServeFile` sends anyway.
 fn cache_and_finish(_state: &AppState, path: &str, mut resp: Response) -> Response {
@@ -511,11 +536,11 @@ pub fn require_guild(state: &AppState, principal: &Principal, guild: Snowflake) 
         }
         // What Discord said at sign-in, read back from the row. Permissions change on
         // Discord's side without any event reaching us, so a session is a snapshot and the
-        // answer to "my access should have stopped" is to sign out and in again — or to let
+        // answer to "my access should have stopped" is to sign out and in again - or to let
         // AERONA_SESSION_HOURS do it.
         if !state.db.session_allows_guild(session.id, guild.as_i64())? {
             return Err(Error::Forbidden(
-                "this session was issued for different servers — sign in again",
+                "this session was issued for different servers - sign in again",
             ));
         }
     }
@@ -523,7 +548,7 @@ pub fn require_guild(state: &AppState, principal: &Principal, guild: Snowflake) 
     match state_row {
         None => Err(Error::NotFound("guild")),
         Some(s) if !s.bot_present => Err(Error::Conflict(
-            "aerona is not present in that server — re-invite it before changing its settings"
+            "aerona is not present in that server - re-invite it before changing its settings"
                 .into(),
         )),
         Some(_) => Ok(()),
@@ -566,7 +591,7 @@ pub fn queue_action(
 
 /// The machine-readable route manifest (`GET /api/v1/manifest`). The dashboard and
 /// `main.py check` both read it, so it is derived from the same table the routes
-/// are declared in — not a hand-maintained copy that can drift.
+/// are declared in - not a hand-maintained copy that can drift.
 pub fn manifest(cfg: &Config) -> Value {
     json!({
         "version": aerona_core::VERSION,
@@ -593,7 +618,7 @@ pub fn manifest(cfg: &Config) -> Value {
     })
 }
 
-/// `(method, path, auth, scope, summary)` — one row per endpoint.
+/// `(method, path, auth, scope, summary)` - one row per endpoint.
 pub const ROUTES: &[(&str, &str, &str, &str, &str)] = &[
     (
         "GET",
@@ -709,6 +734,27 @@ pub const ROUTES: &[(&str, &str, &str, &str, &str)] = &[
         "session|key",
         "config",
         "drop the staged avatar and queue a clear of Discord's copy",
+    ),
+    (
+        "PUT",
+        "/guilds/{guild}/identity/banner",
+        "session|key",
+        "config",
+        "stage one banner image for the next apply; never stored in the settings document",
+    ),
+    (
+        "DELETE",
+        "/guilds/{guild}/identity/banner",
+        "session|key",
+        "config",
+        "drop the staged banner and queue a clear of Discord's copy",
+    ),
+    (
+        "PUT",
+        "/guilds/{guild}/identity/deco",
+        "session|key",
+        "config",
+        "set or clear the avatar and banner decorations, and queue the apply",
     ),
     (
         "GET",
@@ -841,7 +887,7 @@ pub const ROUTES: &[(&str, &str, &str, &str, &str)] = &[
         "/guilds/{guild}/tickets/{id}/transcript",
         "session|key",
         "read",
-        "transcript rows",
+        "the transcript, as the page or the file, with its kept pictures inline",
     ),
     (
         "POST",
@@ -891,6 +937,41 @@ pub const ROUTES: &[(&str, &str, &str, &str, &str)] = &[
         "session|key",
         "config",
         "remove a sticky",
+    ),
+    (
+        "GET",
+        "/guilds/{guild}/capes",
+        "session|key",
+        "read",
+        "cape notifier settings and what it has found",
+    ),
+    (
+        "POST",
+        "/guilds/{guild}/capes/check",
+        "session|key",
+        "config",
+        "ask the worker to poll the wiki on its next pass",
+    ),
+    (
+        "GET",
+        "/guilds/{guild}/capes/{slug}/frame/{frame}",
+        "session|key",
+        "read",
+        "one stored render of a cape, as png",
+    ),
+    (
+        "GET",
+        "/guilds/{guild}/log",
+        "session|key",
+        "read",
+        "what the logger recorded, newest first",
+    ),
+    (
+        "POST",
+        "/guilds/{guild}/picker-refresh",
+        "session|key",
+        "config",
+        "ask the worker for the current channel and role lists",
     ),
     (
         "GET",
@@ -1100,7 +1181,7 @@ mod tests {
             retry >= 1,
             "retry-after must be a positive number of seconds"
         );
-        // A different address is unaffected — this is what stops one noisy client
+        // A different address is unaffected - this is what stops one noisy client
         // from locking the whole dashboard.
         state.meter(&state.auth, "2.2.2.2", 1.0).unwrap();
         // The general bucket is per-method weighted but far more generous.
@@ -1126,7 +1207,14 @@ mod tests {
         // what must *not* be pinned: a favicon is replaced by overwriting it, and `theme-boot.js`
         // is the file that decides the colours of the page you are looking at. Pinning either for
         // a year is how a redeploy looks like it did nothing.
-        for forever in ["/assets/Guild-DCQ76Tg3.js", "/assets/index-4f2b1c9a.css"] {
+        // `index-B0IWrOJ_.js` is a real name from a real build of this dashboard, and the trailing
+        // underscore is exactly the character an earlier version of the rule refused.
+        for forever in [
+            "/assets/Guild-DCQ76Tg3.js",
+            "/assets/index-4f2b1c9a.css",
+            "/assets/index-B0IWrOJ_.js",
+            "/assets/rolldown-runtime-WkwZ5CU-.js",
+        ] {
             assert!(is_fingerprinted(forever), "{forever} is content-addressed");
         }
         for mutable in [

@@ -1,24 +1,29 @@
 /**
- * The audit channel: what the bot repeats in a channel so staff do not have to ask.
+ * Logging: copies of what happened, in a channel, plus the same rows the panel can search.
  *
- * Twelve switches and one channel. The list is deliberately small — these are the events the
- * worker actually handles, and a toggle for something it never looks at would be a lie.
+ * There is no master switch. The channel is the switch: name one and the events below go to it,
+ * clear it and nothing is recorded. A page that asked for both would allow a saved state where
+ * logging is "on" and records nothing, which is the worst kind of setting.
  */
+import { useState } from 'react'
 import { ScrollText } from 'lucide-react'
 import { toast } from 'sonner'
+
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 import { TableCell } from '@/components/ui/table'
 
-import { aiEvents, patchSettings } from '../../lib/api'
+import { guildLog, patchSettings, type LogRow } from '../../lib/api'
 import { useAsync } from '../../lib/hooks'
 import { useGuild } from '../../lib/guild'
 import { SettingsForm } from '../../lib/settings-form'
 import { ago, PageHeader, Panel, shortId, Table } from './shared'
 
-/** The same list the worker matches against, restated with the words an operator reads. */
+/** The events the worker emits, in the words an operator reads. This list is checked against
+ *  `aerona_core::models::LOG_EVENTS` by the prerender audit, so a switch cannot exist here for
+ *  something the bot never looks at. */
 const EVENTS: [string, string][] = [
   ['message_edit', 'Message edited'],
   ['message_delete', 'Message deleted'],
@@ -29,16 +34,32 @@ const EVENTS: [string, string][] = [
   ['member_unban', 'Unban'],
   ['role_change', 'Roles change'],
   ['nickname_change', 'Nickname changes'],
-  ['username_change', 'Username changes'],
   ['channel_change', 'Channels change'],
 ]
 
+const label = (key: string) => EVENTS.find(([k]) => k === key)?.[1] ?? key
+
+/** One half of a change. Both halves get a column of their own, because a log whose "before" and
+ *  "after" share a cell is a log where you have to work out which line is which. */
+function Side({ text, muted }: { text: string | null; muted?: boolean }) {
+  if (!text) return <TableCell className="text-muted-foreground/60">-</TableCell>
+  return (
+    <TableCell className={`max-w-[38ch] align-top ${muted ? 'text-muted-foreground' : 'text-foreground'}`}>
+      <span className="block whitespace-pre-wrap break-words">{text}</span>
+    </TableCell>
+  )
+}
+
 export default function Logs() {
-  const { id, settings, reload } = useGuild()
+  const { id, settings, report, reload } = useGuild()
   const cfg = settings('logging') as Record<string, unknown>
   const on = Array.isArray(cfg.events) ? (cfg.events as string[]) : []
-  const recent = useAsync((signal) => aiEvents(id, 40), [id])
-  const rows = (recent.data?.events ?? []) as Record<string, unknown>[]
+  const channelId = cfg.channel_id ? String(cfg.channel_id) : ''
+  const channels = report?.picker?.channels ?? []
+  const channelName = channels.find((c) => c.id === channelId)?.name
+  const [filter, setFilter] = useState('')
+  const recent = useAsync((signal) => guildLog(id, { event: filter || undefined, limit: 80 }, signal), [id, filter])
+  const rows = (recent.data?.events ?? []) as LogRow[]
 
   const flip = async (key: string) => {
     const next = on.includes(key) ? on.filter((k) => k !== key) : [...on, key]
@@ -54,70 +75,121 @@ export default function Logs() {
     <div className="grid gap-5">
       <PageHeader
         title="Logging"
-        hint="Copies of what happened, in a channel your staff can read."
-        actions={cfg.enabled ? <Badge variant="secondary">on</Badge> : <Badge variant="outline">off</Badge>}
+        actions={
+          channelId ? (
+            <Badge variant="secondary">to #{channelName ?? shortId(channelId)}</Badge>
+          ) : (
+            <Badge variant="outline">no channel picked</Badge>
+          )
+        }
       />
 
-      <Panel title="Which events" hint="Everything you switch on is posted to the channel below.">
-        <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
-          {EVENTS.map(([key, label]) => (
-            <Label
-              key={key}
-              className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted/60"
-            >
-              {label}
-              <Switch checked={on.includes(key)} onCheckedChange={() => void flip(key)} aria-label={label} />
-            </Label>
-          ))}
-        </div>
-      </Panel>
+      {!channelId ? (
+        <p className="rounded-xl border border-dashed px-4 py-3 text-sm text-muted-foreground">
+          Nothing is recorded until you pick a channel.
+        </p>
+      ) : null}
 
       <SettingsForm
         feature="logging"
         title="Where it goes"
         icon={ScrollText}
         fields={[
-          { kind: 'switch', key: 'enabled', label: 'Post the log' },
-          { kind: 'ids', key: 'channel_id', label: 'Channel', source: 'channels', hint: 'Keep it above the events, or the log buries itself.' },
-          { kind: 'switch', key: 'ignore_bots', label: 'Ignore other bots', hint: 'Otherwise two bots can log each other forever.' },
-          { kind: 'int', key: 'max_cached_messages', label: 'Remember messages for', hint: 'How far back an edit can be described with its old text.', min: 0, max: 5000, suffix: 'messages' },
+          {
+            kind: 'ids',
+            key: 'channel_id',
+            label: 'Channel',
+            source: 'channels',
+            hint: 'The channel is the switch: clear it and nothing is recorded.',
+          },
+          { kind: 'switch', key: 'ignore_bots', label: 'Ignore other bots' },
+          {
+            kind: 'int',
+            key: 'max_cached_messages',
+            label: 'Remember messages for',
+            hint: 'How far back an edit can quote the old text, and how many messages the pickers can offer.',
+            min: 0,
+            max: 5000,
+            suffix: 'messages',
+          },
         ]}
       />
 
+      <Panel title="Which events">
+        <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
+          {EVENTS.map(([key, text]) => (
+            <Label
+              key={key}
+              className="flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-sm font-medium hover:bg-muted/60"
+            >
+              {text}
+              <Switch checked={on.includes(key)} onCheckedChange={() => void flip(key)} aria-label={text} />
+            </Label>
+          ))}
+        </div>
+      </Panel>
+
       <Panel
-        title="Recently enforced"
-        hint={recent.loading ? 'Loading…' : `${rows.length} rows · the same list the filter page writes`}
+        title="What it recorded"
+        hint={recent.loading ? 'Loading…' : `${rows.length} rows${filter ? ` · ${label(filter)}` : ''}`}
         actions={
           <Button variant="outline" size="sm" onClick={recent.reload} disabled={recent.loading}>
             Reload
           </Button>
         }
       >
+        <div className="flex flex-wrap gap-1 border-b px-4 py-3">
+          <Button variant={filter === '' ? 'secondary' : 'ghost'} size="sm" onClick={() => setFilter('')}>
+            Everything
+          </Button>
+          {on.map((key) => (
+            <Button
+              key={key}
+              variant={filter === key ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setFilter(key)}
+            >
+              {label(key)}
+            </Button>
+          ))}
+        </div>
         <Table
-          head={['When', 'Member', 'Class', 'Severity', 'Did', 'Where']}
+          head={['When', 'Member', 'What', 'Where', 'Before', 'After']}
           rows={rows}
           render={(r) => {
-            const row = r as Record<string, unknown>
+            const row = r as LogRow
+            const where = channels.find((c) => c.id === (row.channelId ?? ''))?.name
             return (
               <>
-                <TableCell className="text-muted-foreground">{ago(Number(row.at ?? 0))}</TableCell>
-                <TableCell className="font-medium" title={String(row.userId ?? '')}>
-                  {String(row.user ?? shortId(String(row.userId ?? '')))}
+                <TableCell className="text-muted-foreground">{ago(row.at)}</TableCell>
+                <TableCell className="font-medium" title={row.userId ?? ''}>
+                  {row.userId ? shortId(row.userId) : 'system'}
                 </TableCell>
-                <TableCell>{String(row.category ?? '—')}</TableCell>
-                <TableCell>
-                  <Badge variant={row.severity === 'critical' || row.severity === 'high' ? 'destructive' : 'outline'}>
-                    {String(row.severity ?? '—')}
-                  </Badge>
+                <TableCell>{row.summary}</TableCell>
+                <TableCell className="text-muted-foreground">
+                  {where ? `#${where}` : row.channelId ? shortId(row.channelId) : ''}
+                  {row.messageId ? (
+                    <a
+                      className="ms-1 text-xs underline decoration-muted-foreground/50"
+                      href={`https://discord.com/channels/${id}/${row.channelId ?? ''}/${row.messageId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      jump
+                    </a>
+                  ) : null}
                 </TableCell>
-                <TableCell className="text-muted-foreground">{String(row.action ?? '—')}</TableCell>
-                <TableCell className="text-muted-foreground" title={String(row.channel_id ?? '')}>
-                  #{shortId(String(row.channel_id ?? ''))}
-                </TableCell>
+                <Side text={row.before} muted />
+                <Side text={row.after} />
               </>
             )
           }}
         />
+        {rows.length === 0 && !recent.loading ? (
+          <p className="px-4 py-3 text-sm text-muted-foreground">
+            {channelId ? 'Nothing matches that filter yet.' : 'No channel picked, so nothing was recorded.'}
+          </p>
+        ) : null}
       </Panel>
     </div>
   )

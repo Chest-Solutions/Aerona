@@ -129,6 +129,41 @@ pub(crate) fn opt_str_field(body: &Value, key: &str, max: usize) -> Result<Optio
     }
 }
 
+/// A field allowed to keep its line breaks.
+///
+/// `str_field` runs `security::clean`, which folds a newline into a space - right for a label,
+/// wrong for the body of an embed or a ticket's opening text, where the lines are the point. This
+/// reader only decides that the value is a string and not absurd, and hands the shaping to
+/// `security::scrub_block` (twenty lines, three hundred characters each), which the model calls
+/// anyway: a field that arrives cleaned twice is a field whose formatting was decided twice.
+pub(crate) fn opt_block_field(body: &Value, key: &str, max: usize) -> Result<Option<String>> {
+    let Some(value) = body.get(key) else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let raw = match value {
+        Value::String(s) => s.clone(),
+        Value::Number(n) => n.to_string(),
+        other => {
+            return Err(Error::Invalid(format!(
+                "{key} must be a string, not {}",
+                value_type(other)
+            )))
+        }
+    };
+    if raw.chars().count() > max {
+        return Err(Error::Invalid(format!(
+            "{key} is longer than {max} characters"
+        )));
+    }
+    let kept = aerona_core::security::scrub_block(&raw, max);
+    // Whitespace only is not a value; treating it as absent keeps "clear it" and "leave it alone"
+    // from meaning the same thing in one direction and the other in the next.
+    Ok((!kept.is_empty()).then_some(kept))
+}
+
 pub(crate) fn sf_field(body: &Value, key: &str) -> Result<Snowflake> {
     let raw = str_field(body, key, 20)?;
     Snowflake::parse(&raw).map_err(|_| Error::Invalid(format!("{key} must be a discord id")))
@@ -226,7 +261,7 @@ pub(crate) fn merge(base: &mut Value, patch: &Value) {
         (Value::Object(b), Value::Object(p)) => {
             for (k, v) in p {
                 if v.is_null() {
-                    // An explicit null clears a field rather than being ignored —
+                    // An explicit null clears a field rather than being ignored -
                     // that is the only way to unset an optional channel or role.
                     b.insert(k.clone(), Value::Null);
                     continue;
@@ -259,6 +294,7 @@ pub(crate) fn default_doc(feature: Feature) -> Value {
         Feature::AntiSpam => json!(AntiSpamConfig::default()),
         Feature::Identity => json!(IdentityConfig::default()),
         Feature::Logging => json!(LogConfig::default()),
+        Feature::Capes => json!(CapeConfig::default()),
         // API keys are managed by /keys, where creation and revocation are audited
         // and scoped. A raw settings write would bypass all of that.
         Feature::Keys => Value::Null,
@@ -272,7 +308,22 @@ pub(crate) fn default_doc(feature: Feature) -> Value {
 /// (`join_threshhold`) would deserialize happily, store a document that still says
 /// `30`, and answer `200`. The operator would then wonder for a week why the raid
 /// sensitivity did not change.
-pub(crate) fn normalize(feature: Feature, doc: Value) -> Result<Value> {
+/// Keys a feature used to have and no longer models. They are removed from an incoming document
+/// before validation, so an install that saved them while the setting existed can keep saving it.
+/// A feature says which by listing them on itself (`StickyConfig::RETIRED_KEYS`), so the model is
+/// still the only answer to what a document may contain.
+fn retire_keys(feature: Feature, doc: &mut Value) {
+    if feature != Feature::Sticky {
+        return;
+    }
+    if let Some(obj) = doc.as_object_mut() {
+        for key in aerona_core::models::StickyConfig::RETIRED_KEYS {
+            obj.remove(key);
+        }
+    }
+}
+
+pub(crate) fn normalize(feature: Feature, mut doc: Value) -> Result<Value> {
     use aerona_core::models::*;
     if feature == Feature::Keys {
         return Err(Error::Invalid(
@@ -284,6 +335,13 @@ pub(crate) fn normalize(feature: Feature, doc: Value) -> Result<Value> {
             "a settings document must be a json object".into(),
         ));
     }
+    // An old document is validated against the model that exists *now*, so a key a previous
+    // version wrote has to be dropped here first. Refusing it would be a permanent lock rather than
+    // a review: the stored document carries the key whether or not anybody is typing it, and
+    // every save after an upgrade would answer "sticky has no setting(s): repost" forever. That is
+    // the same class of bug as a handler writing a key the model does not have, met from the other
+    // side, and the fix is the same - the document and the model agree, or nothing is written.
+    retire_keys(feature, &mut doc);
     let default = default_doc(feature);
     if let (Some(got), Some(want)) = (doc.as_object(), default.as_object()) {
         let unknown: Vec<&String> = got
@@ -307,7 +365,9 @@ pub(crate) fn normalize(feature: Feature, doc: Value) -> Result<Value> {
     let stored = match feature {
         Feature::General => serde_json::from_value::<GuildSettings>(doc).map(|v| json!(v)),
         Feature::Moderation => serde_json::from_value::<ModConfig>(doc).map(|v| json!(v)),
-        Feature::Tickets => serde_json::from_value::<TicketConfig>(doc).map(|v| json!(v)),
+        Feature::Tickets => {
+            serde_json::from_value::<TicketConfig>(doc).map(|v| json!(normalise_tickets(v)))
+        }
         Feature::Sticky => serde_json::from_value::<StickyConfig>(doc).map(|v| json!(v)),
         Feature::AntiRaid => serde_json::from_value::<RaidConfig>(doc).map(|v| json!(v)),
         Feature::AiFilter => serde_json::from_value::<AiConfig>(doc).map(|v| json!(v)),
@@ -326,10 +386,65 @@ pub(crate) fn normalize(feature: Feature, doc: Value) -> Result<Value> {
                 .map_err(<serde_json::Error as serde::de::Error>::custom)
         }),
         Feature::Logging => serde_json::from_value::<LogConfig>(doc).map(|v| json!(v)),
+        Feature::Capes => {
+            serde_json::from_value::<CapeConfig>(doc).map(|v| json!(normalise_capes(v)))
+        }
         Feature::Keys => unreachable!("rejected above"),
     }
     .map_err(|e| Error::Invalid(describe(&e)))?;
     Ok(stored)
+}
+
+/// What a cape notifier document is allowed to say.
+///
+/// Both limits are the ones the worker enforces anyway, applied on the way in so the panel reads
+/// back the number that is actually used rather than the one that was typed. A one-minute poll is
+/// traffic for nothing - the category is sixty-odd pages and changes a few times a year - and an
+/// embed colour wider than 24 bits is not a colour Discord can draw.
+fn normalise_capes(mut v: aerona_core::models::CapeConfig) -> aerona_core::models::CapeConfig {
+    v.check_every_minutes = v.check_every_minutes.clamp(15, 1440);
+    v.embed_color &= 0xff_ff_ff;
+    v
+}
+
+/// A ticket card's wording and buttons, kept inside what Discord accepts.
+///
+/// Labels are clamped rather than refused: an operator who typed 90 characters wants the button,
+/// and cutting it to Discord's 80 is a smaller surprise than a save that fails on a count nobody
+/// can see. A link whose URL Discord would reject is dropped instead of stored, because a card
+/// that fails to build takes the whole ticket open down with it.
+fn normalise_tickets(
+    mut v: aerona_core::models::TicketConfig,
+) -> aerona_core::models::TicketConfig {
+    use aerona_core::models::TicketLink;
+    let label = |s: &str| -> String {
+        let t = aerona_core::security::clean(s, 80);
+        if t == "Clear" || t == "Close ticket" || t == "Claim" || t == "Transcript" {
+            // Wording that equals the built-in one is not a change; storing it would make the
+            // default impossible to recognise as a default.
+            String::new()
+        } else {
+            t
+        }
+    };
+    v.close_label = label(&v.close_label);
+    v.claim_label = label(&v.claim_label);
+    v.transcript_label = label(&v.transcript_label);
+    let mut seen: Vec<String> = Vec::new();
+    v.links.retain(|l| {
+        let url = l.url.trim();
+        let ok = l.is_usable() && !seen.iter().any(|u| u == url);
+        if ok {
+            seen.push(url.to_string());
+        }
+        ok
+    });
+    v.links.truncate(TicketLink::MAX);
+    for link in &mut v.links {
+        link.label = aerona_core::security::clean(&link.label, TicketLink::LABEL_MAX);
+        link.url = aerona_core::security::clean(link.url.trim(), TicketLink::URL_MAX);
+    }
+    v
 }
 
 /// Domains are matched as hosts, so they are stored as hosts: lowercase, no scheme, no
@@ -398,12 +513,31 @@ fn normalise_identity(
     {
         return Err(Error::Invalid("a nickname needs 2 characters".into()));
     }
+    // A decoration is an id or nothing. Discord has no endpoint that lists them for a bot, so the
+    // only validation available is the shape: digits, and not zero. An empty string is kept,
+    // because that is how the panel says "take it off", and the apply turns it into a null.
+    let deco = |s: &Option<String>, name: &str| -> Result<Option<String>> {
+        let Some(raw) = s else { return Ok(None) };
+        let id = raw.trim();
+        if id.is_empty() {
+            return Ok(Some(String::new()));
+        }
+        if id.len() > 20 || id == "0" || !id.chars().all(|c| c.is_ascii_digit()) {
+            return Err(Error::Invalid(format!(
+                "{name} must be the digits of a Discord id, not {id:?}"
+            )));
+        }
+        Ok(Some(id.to_string()))
+    };
     Ok(aerona_core::models::IdentityConfig {
         nick,
         bio: clean(&v.bio, I::BIO_MAX, "bio")?,
         // The bytes never live in a settings document: see `identity_avatar`.
         avatar: None,
         avatar_hash: v.avatar_hash.filter(|h| h.len() >= 8 && h.len() <= 80),
+        banner_hash: v.banner_hash.filter(|h| h.len() >= 8 && h.len() <= 80),
+        avatar_decoration_id: deco(&v.avatar_decoration_id, "the avatar decoration")?,
+        banner_decoration_id: deco(&v.banner_decoration_id, "the banner decoration")?,
         about: clean(&v.about, 300, "about")?,
     })
 }
@@ -422,7 +556,7 @@ pub(crate) fn settings_for(
     feature: Feature,
 ) -> Result<Value> {
     // A stored document is always the full normalized one (`PATCH` writes what
-    // `normalize` produced), so there is nothing to merge with defaults here — and
+    // `normalize` produced), so there is nothing to merge with defaults here - and
     // merging would risk showing a field the guild explicitly set.
     match db.raw_settings(guild, feature)? {
         Some(v) => Ok(v),

@@ -70,7 +70,7 @@ pub fn accepted(outbox_id: i64) -> Response {
     )
 }
 
-/// `204` with no body — for DELETE-style routes where the dashboard only needs
+/// `204` with no body - for DELETE-style routes where the dashboard only needs
 /// to know it worked.
 pub fn no_content() -> Response {
     StatusCode::NO_CONTENT.into_response()
@@ -111,7 +111,7 @@ pub struct Invalid(pub Error);
 
 impl Invalid {
     /// A validation failure naming the offending fields. The client sees
-    /// `details: {field: reason}` plus a generic message — never an echo of what it
+    /// `details: {field: reason}` plus a generic message - never an echo of what it
     /// submitted, which here is often somebody else's id.
     pub fn new(err: Error, fields: Vec<(&'static str, &'static str)>) -> Self {
         if fields.is_empty() {

@@ -9,7 +9,7 @@
 import { useMemo, useState } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { motion } from 'framer-motion'
-import { Check, Search } from 'lucide-react'
+import { Check, HelpCircle, Search } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -20,11 +20,13 @@ import { Label } from '@/components/ui/label'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 
 import { cn } from './utils'
 import { useGuild } from './guild'
 import type { Feature } from './api'
 import type { PickerOption } from './api'
+import { refreshPicker } from './picker-sync'
 
 export type FieldDef =
   | { kind: 'switch'; key: string; label: string; hint?: string }
@@ -34,7 +36,37 @@ export type FieldDef =
   | { kind: 'textarea'; key: string; label: string; hint?: string; rows?: number; placeholder?: string; max?: number }
   | { kind: 'enum'; key: string; label: string; hint?: string; options: { value: string; label: string }[] }
   | { kind: 'lines'; key: string; label: string; hint?: string; placeholder?: string }
-  | { kind: 'ids'; key: string; label: string; hint?: string; source: 'channels' | 'roles'; multiple?: boolean }
+  | { kind: 'ids'; key: string; label: string; hint?: string; source: 'channels' | 'roles' | 'categories'; multiple?: boolean }
+
+/** A `?` that says the one thing a label cannot.
+ *
+ *  These pages used to print every hint as a grey sentence under its field, which is how a
+ *  settings page turns into an essay and why nobody reads any of it. The sentence lives behind the
+ *  mark now: the field is quiet, and the explanation is there when somebody wants it.
+ */
+export function FieldHint({ text }: { text?: string }) {
+  if (!text) return null
+  return (
+    <TooltipProvider delay={80}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <button
+              type="button"
+              aria-label={text}
+              className="inline-grid size-4 shrink-0 place-items-center rounded-full border text-muted-foreground hover:bg-muted focus-visible:outline-2"
+            >
+              <HelpCircle className="size-3" />
+            </button>
+          }
+        />
+        <TooltipContent side="top" className="max-w-[38ch] text-xs leading-relaxed">
+          {text}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
 
 export function SettingsForm({
   feature,
@@ -57,7 +89,7 @@ export function SettingsForm({
   icon?: LucideIcon
   /**
    * Colour as a *meaning*: `warn` is a card whose setting changes what happens to a member, and
-   * it is tinted so it cannot be mistaken for a preference. Kept to three values on purpose — a
+   * it is tinted so it cannot be mistaken for a preference. Kept to three values on purpose - a
    * palette per card is how a settings page turns into a rainbow.
    */
   tone?: 'default' | 'warn' | 'calm'
@@ -83,8 +115,18 @@ export function SettingsForm({
   }
 
   return (
-    <Card>
-      <CardHeader className={cn('flex-row items-center gap-3', tone === 'warn' && 'bg-amber-500/5')}>
+    <Card className="relative">
+      {/* The colour of a card used to be a wash behind its title, which started one card-padding
+          away from the top edge and read as a mistake. A strip that runs the full width, flush
+          with the card's own border, is the same signal without the gap: the card already has
+          `overflow-hidden`, so it is clipped to the rounded corners for free. */}
+      {tone === 'warn' ? (
+        <span aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-amber-500/80" />
+      ) : null}
+      {tone === 'calm' ? (
+        <span aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-emerald-500/80" />
+      ) : null}
+      <CardHeader className="flex-row items-center gap-3">
         {Icon ? (
           <span
             className={cn(
@@ -139,7 +181,7 @@ function FieldRow({
           <Label htmlFor={`${def.key}`} className="font-medium">
             {def.label}
           </Label>
-          {def.hint ? <p className="text-sm text-muted-foreground">{def.hint}</p> : null}
+          <FieldHint text={def.hint} />
         </div>
         <Switch
           id={def.key}
@@ -156,7 +198,7 @@ function FieldRow({
     return (
       <label className="grid gap-1.5">
         <span className="font-medium text-sm">{def.label}</span>
-        {def.hint ? <span className="text-sm text-muted-foreground">{def.hint}</span> : null}
+        <FieldHint text={def.hint} />
         <span className="flex items-center gap-2">
           <Input
             type="number"
@@ -184,7 +226,7 @@ function FieldRow({
     return (
       <label className="grid gap-1.5">
         <span className="font-medium text-sm">{def.label}</span>
-        {def.hint ? <span className="text-sm text-muted-foreground">{def.hint}</span> : null}
+        <FieldHint text={def.hint} />
         <span className="flex items-center gap-2">
           <input
             type="color"
@@ -211,7 +253,7 @@ function FieldRow({
     return (
       <label className="grid gap-1.5">
         <span className="font-medium text-sm">{def.label}</span>
-        {def.hint ? <span className="text-sm text-muted-foreground">{def.hint}</span> : null}
+        <FieldHint text={def.hint} />
         <Input
           value={String(value ?? '')}
           maxLength={def.max}
@@ -226,7 +268,7 @@ function FieldRow({
     return (
       <label className="grid gap-1.5">
         <span className="font-medium text-sm">{def.label}</span>
-        {def.hint ? <span className="text-sm text-muted-foreground">{def.hint}</span> : null}
+        <FieldHint text={def.hint} />
         <Textarea
           rows={def.rows ?? 3}
           maxLength={def.max}
@@ -243,7 +285,7 @@ function FieldRow({
     return (
       <div className="grid gap-1.5">
         <span className="font-medium text-sm">{def.label}</span>
-        {def.hint ? <span className="text-sm text-muted-foreground">{def.hint}</span> : null}
+        <FieldHint text={def.hint} />
         <div className="flex flex-wrap gap-1.5">
           {def.options.map((o) => (
             <Button
@@ -266,7 +308,7 @@ function FieldRow({
     return (
       <label className="grid gap-1.5">
         <span className="font-medium text-sm">{def.label}</span>
-        {def.hint ? <span className="text-sm text-muted-foreground">{def.hint}</span> : null}
+        <FieldHint text={def.hint} />
         <Textarea
           rows={Math.min(6, Math.max(2, list.length + 1))}
           placeholder={def.placeholder}
@@ -288,6 +330,25 @@ function FieldRow({
   return <IdPicker def={def} value={value} onChange={onChange} />
 }
 
+/** The two marks a Discord role carries: its colour, and its icon or unicode emoji when it has
+ *  one. Channels pass nothing, so they render as nothing and keep the `#` that is their own. */
+function RoleMark({ color, icon, emoji }: { color?: number; icon?: string | null; emoji?: string | null }) {
+  if (!color && !icon && !emoji) return null
+  return (
+    <>
+      {color ? (
+        <span
+          aria-hidden
+          className="size-2.5 shrink-0 rounded-full ring-1 ring-inset ring-black/10"
+          style={{ backgroundColor: `rgb(${(color >> 16) & 255}, ${(color >> 8) & 255}, ${color & 255})` }}
+        />
+      ) : null}
+      {icon ? <img src={icon} alt="" className="size-4 shrink-0 rounded-sm object-contain" loading="lazy" /> : null}
+      {emoji && !icon ? <span aria-hidden className="text-xs">{emoji}</span> : null}
+    </>
+  )
+}
+
 /** Channel and role ids, picked from what the worker last saw. Falls back to a plain id
  *  box when no worker has reported yet, because an install can be configured before the
  *  bot has ever connected. */
@@ -300,19 +361,62 @@ function IdPicker({
   value: unknown
   onChange: (v: unknown) => void
 }) {
-  const { report } = useGuild()
+  const { report, reload, id: guildId } = useGuild()
+  const [syncing, setSyncing] = useState(false)
+  const [waited, setWaited] = useState(false)
   const options: PickerOption[] = useMemo(() => {
     const p = report?.picker
     if (!p) return []
-    return (def.source === 'channels' ? p.channels : p.roles) ?? []
+    if (def.source === 'categories') return p.categories ?? []
+    const list = (def.source === 'channels' ? p.channels : p.roles) ?? []
+    // A managed role cannot be granted by hand, and offering it is a picker that saves something
+    // Discord strips again within the minute.
+    return def.source === 'roles' ? list.filter((r) => r.assignable !== false) : list
   }, [report, def.source])
+
+  /** The category names, so a list of channels can be read the way Discord reads it. A channel
+   *  whose parent was not reported, or that has none, lands under `Unfiled`: the truth rather
+   *  than a silent omission. */
+  const categoryNames = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const c of report?.picker?.categories ?? []) map.set(c.id, c.name)
+    return map
+  }, [report])
+  const grouped = useMemo(() => {
+    if (def.source !== 'channels') return null
+    const groups = new Map<string, PickerOption[]>()
+    for (const o of options) {
+      const key = (o.category && categoryNames.get(o.category)) || 'Unfiled'
+      const list = groups.get(key) ?? []
+      list.push(o)
+      groups.set(key, list)
+    }
+    return [...groups.entries()]
+  }, [options, categoryNames, def.source])
+
+  /** Ask, then wait for the report's own timestamp to move. If the worker is unreachable the
+   *  button says so after a few seconds instead of pretending the server has no channels. */
+  const sync = async () => {
+    setSyncing(true)
+    const answered = await refreshPicker(guildId, report?.picker?.reportedAt, reload)
+    setWaited(!answered)
+    setSyncing(false)
+  }
 
   const ids: string[] = useMemo(() => {
     if (def.multiple) return Array.isArray(value) ? (value as string[]).map(String) : []
     return value ? [String(value)] : []
   }, [value, def.multiple])
 
-  const name = (id: string) => options.find((o) => o.id === id)?.name ?? id
+  /** A bare snowflake is not a name. Channels get the `#` they have in Discord and roles get
+   *  their colour, so a saved setting can be recognised without clicking into it. */
+  const label = (o: PickerOption) => (def.source === 'channels' ? `#${o.name}` : o.name)
+  const name = (id: string) => {
+    const found = options.find((o) => o.id === id)
+    return found ? label(found) : `…${id.slice(-4)}`
+  }
+  const mark = (o: PickerOption) =>
+    def.source === 'roles' ? { color: o.color, icon: o.iconUrl, emoji: o.emoji } : {}
   const [open, setOpen] = useState(false)
 
   const toggle = (id: string) => {
@@ -327,12 +431,12 @@ function IdPicker({
   return (
     <div className="grid gap-1.5">
       <span className="font-medium text-sm">{def.label}</span>
-      {def.hint ? <span className="text-sm text-muted-foreground">{def.hint}</span> : null}
+      <FieldHint text={def.hint} />
       <div className="flex flex-wrap items-center gap-1.5">
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger>
             <Button type="button" variant="outline" size="sm">
-              <Search /> {def.source === 'channels' ? 'Pick a channel' : 'Pick a role'}
+              <Search /> {def.source === 'channels' ? 'Pick a channel' : def.source === 'categories' ? 'Pick a category' : 'Pick a role'}
             </Button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-72 p-0">
@@ -346,14 +450,31 @@ function IdPicker({
                     'No match.'
                   )}
                 </CommandEmpty>
-                <CommandGroup>
-                  {options.map((o) => (
-                    <CommandItem key={o.id} value={`${o.name} ${o.id}`} onSelect={() => toggle(o.id)}>
-                      <span className="flex-1 truncate">{o.name}</span>
-                      {ids.includes(o.id) ? <Check className="size-4" /> : null}
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
+                {grouped ? (
+                  // Categories are headings, not choices: a ticket channel goes *in* one, and the
+                  // heading is here so a duplicate `#general` two categories down is recognisable
+                  // before somebody saves it.
+                  grouped.map(([heading, rows]) => (
+                    <CommandGroup key={heading} heading={heading}>
+                      {rows.map((o) => (
+                        <CommandItem key={o.id} value={`${o.name} ${o.id}`} onSelect={() => toggle(o.id)}>
+                          <span className="flex-1 truncate">{label(o)}</span>
+                          {ids.includes(o.id) ? <Check className="size-4" /> : null}
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  ))
+                ) : (
+                  <CommandGroup>
+                    {options.map((o) => (
+                      <CommandItem key={o.id} value={`${o.name} ${o.id}`} onSelect={() => toggle(o.id)}>
+                        <RoleMark {...mark(o)} />
+                        <span className="flex-1 truncate">{label(o)}</span>
+                        {ids.includes(o.id) ? <Check className="size-4" /> : null}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
               </CommandList>
             </Command>
           </PopoverContent>
@@ -361,6 +482,7 @@ function IdPicker({
         {ids.map((id) => (
           <motion.span key={id} initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}>
             <Badge variant="secondary" className="gap-1 py-1 pe-1">
+              <RoleMark {...(options.find((o) => o.id === id) ? mark(options.find((o) => o.id === id)!) : {})} />
               {name(id)}
               <button
                 type="button"
@@ -373,6 +495,15 @@ function IdPicker({
             </Badge>
           </motion.span>
         ))}
+        <button
+          type="button"
+          onClick={() => void sync()}
+          disabled={syncing}
+          title="Ask the bot for the channels, categories and roles that exist right now"
+          className="shrink-0 rounded-md border px-2 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-60"
+        >
+          {syncing ? 'Asking the bot' : waited ? 'Not answering' : 'Refresh list'}
+        </button>
         <Input
           className="w-40"
           placeholder="or paste an id"

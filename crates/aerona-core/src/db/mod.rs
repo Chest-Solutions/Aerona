@@ -11,7 +11,7 @@
 //!   `tickets`, `ai_events`, `audit_log`…) is a real table with real indexes.
 //!   Per-feature *settings* live as one JSON document in `guild_config`, because
 //!   adding a 40th column to a settings table costs a migration and a rebuild of
-//!   every typed accessor — while `ALTER TABLE` on a live server that may hold
+//!   every typed accessor - while `ALTER TABLE` on a live server that may hold
 //!   months of config is pure downside. Documents are typed by Rust structs on
 //!   both ends, validated on write, and every change is recorded in
 //!   `config_history` with a hash chain.
@@ -31,6 +31,8 @@ mod schema;
 pub use schema::SCHEMA_V1;
 
 pub mod automation;
+pub mod capes;
+pub mod logging;
 pub mod moderation;
 pub mod security;
 pub mod settings;
@@ -43,7 +45,7 @@ const MAX_POOL_SIZE: u32 = 4;
 
 /// Forward-only schema. Each entry is applied exactly once inside its own
 /// transaction and recorded in `PRAGMA user_version`. Never edit an shipped
-/// entry — append a new one.
+/// entry - append a new one.
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
         version: 1,
@@ -64,6 +66,26 @@ pub const MIGRATIONS: &[Migration] = &[
         version: 4,
         note: "session guild grants",
         sql: schema::SCHEMA_V4,
+    },
+    Migration {
+        version: 5,
+        note: "mod log events + ticket attachments",
+        sql: schema::SCHEMA_V5,
+    },
+    Migration {
+        version: 6,
+        note: "unanchored stickies with embeds + ticket panels as types",
+        sql: schema::SCHEMA_V6,
+    },
+    Migration {
+        version: 7,
+        note: "minecraft cape releases, their frames, and per-guild poll state",
+        sql: schema::SCHEMA_V7,
+    },
+    Migration {
+        version: 8,
+        note: "ticket channels scheduled for deletion, and the files a transcript keeps",
+        sql: schema::SCHEMA_V8,
     },
 ];
 
@@ -208,7 +230,7 @@ impl Db {
         })
     }
 
-    /// `PRAGMA integrity_check` — cheap enough at boot, and it turns a corrupt
+    /// `PRAGMA integrity_check` - cheap enough at boot, and it turns a corrupt
     /// file into a clean startup failure.
     pub fn verify(&self) -> Result<()> {
         self.read(|conn| {
@@ -239,7 +261,7 @@ impl Db {
         })
     }
 
-    /// Kick SQLite's own optimiser (analyses/statistics) — called hourly.
+    /// Kick SQLite's own optimiser (analyses/statistics) - called hourly.
     pub fn optimize(&self) -> Result<()> {
         self.read(|conn| {
             conn.execute_batch("PRAGMA optimize;").map_err(Error::db)?;
@@ -445,9 +467,15 @@ mod tests {
         let path = dir.path().join("x.db");
         {
             let conn = Connection::open(&path).unwrap();
-            conn.execute_batch("PRAGMA user_version = 7;").unwrap();
+            // The newest version, not a literal: what the test is about is a database that claims
+            // to be *current* while having no tables, and that moves every time a migration does.
+            // (A v8 that began with `ALTER TABLE tickets` is exactly the migration that would have
+            // made a hard-coded 7 quietly stop meaning "nothing left to apply".)
+            let current = MIGRATIONS.last().expect("at least one migration").version;
+            conn.execute_batch(&format!("PRAGMA user_version = {current};"))
+                .unwrap();
         }
-        // Opening runs v1 (it is > version? no: 7 >= 1 so it is skipped) — the
+        // Opening runs v1 (it is > version? no: 7 >= 1 so it is skipped) - the
         // visible symptom is the missing tables, which every later query reports.
         let db = Db::open_path(&path).expect("open succeeds at a higher version");
         let err = db.row_count("warns").unwrap_err();

@@ -1,7 +1,7 @@
 /**
  * The warn ledger and the escalation ladder.
  *
- * A warn written here is a row in this install's database, not a message from the bot — the
+ * A warn written here is a row in this install's database, not a message from the bot - the
  * bot escalates on its own once a member passes the threshold, which is why the form below
  * configures a *ladder* and the list above is only the record.
  */
@@ -38,7 +38,7 @@ export default function Moderation() {
 
   const submit = async () => {
     if (!SNOWFLAKE.test(who.trim())) {
-      toast.error('Paste the member’s id — 18 digits.')
+      toast.error('Paste the member’s id - 18 digits.')
       return
     }
     setBusy(true)
@@ -82,7 +82,6 @@ export default function Moderation() {
     <div className="grid gap-5">
       <PageHeader
         title="Moderation"
-        hint="Warns, strikes and what happens at the top of the ladder."
         actions={
           counts ? (
             <>
@@ -175,7 +174,6 @@ export default function Moderation() {
         title="Staff, channels and the ladder"
         icon={ListChecks}
         tone="warn"
-        description="Everything below is this server only."
         fields={[
           { kind: 'ids', key: 'log_channel_id', label: 'Mod log channel', hint: 'Sanctions and cleared warnings are echoed here.', source: 'channels' },
           { kind: 'ids', key: 'mod_role_id', label: 'Staff role', hint: 'Members with it can run the moderation commands.', source: 'roles' },
@@ -193,7 +191,6 @@ export default function Moderation() {
               { value: 'ban', label: 'Ban' },
             ],
           },
-          { kind: 'switch', key: 'dm_reason', label: 'DM the member the reason', hint: 'Skipped when their DMs are closed.' },
           { kind: 'switch', key: 'hierarchy_check', label: 'Never act above my role', hint: 'Leave this on unless you know why it is off.' },
           { kind: 'int', key: 'purge_max', label: 'Purge up to', min: 1, max: 1000, suffix: 'messages' },
           { kind: 'int', key: 'purge_min_age_secs', label: 'Skip messages younger than', hint: 'Discord refuses to bulk-delete anything under 14 days anyway.', min: 0, max: 604800, suffix: 'secs' },

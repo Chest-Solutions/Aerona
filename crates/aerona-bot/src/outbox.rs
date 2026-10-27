@@ -1,18 +1,17 @@
 //! The outbox executor: everything this worker *does* to Discord on somebody's
 //! behalf. The API only ever records an intent, so this is the single place where a
-//! moderation action is turned into a gateway call — which is also what makes a
+//! moderation action is turned into a gateway call - which is also what makes a
 //! Discord outage survivable instead of fatal.
 
 use serde_json::{json, Value};
-use serenity::all::{
-    ChannelId, CreateMessage, EditChannel, EditGuild, GuildId, MessageId, UserId, VerificationLevel,
-};
+use serenity::all::{ChannelId, CreateEmbed, CreateMessage, GuildId, MessageId, UserId};
 
 use aerona_core::db::security::OutboxItem;
 use aerona_core::identity::Snowflake;
 use aerona_core::time::now;
 
 use crate::clamp_chars;
+use crate::notify::{self, Action, Kind};
 use crate::state::BotState;
 use crate::{events, OUTBOX_BATCH};
 
@@ -55,7 +54,7 @@ pub async fn drain(state: &BotState) -> usize {
 /// 5xx or a network fault is our problem to wait out, and the row stays `claimed` so
 /// the claim timeout (120 s) requeues it by itself. Anything else is a real answer from
 /// Discord and is recorded as a failure the operator can read in the dashboard.
-fn is_transient(err: &serenity::Error) -> bool {
+pub(crate) fn is_transient(err: &serenity::Error) -> bool {
     match err {
         serenity::Error::Http(h) => transient_from_status(h.status_code().map(|c| c.as_u16())),
         // A failure whose shape we do not recognise is waited out rather than reported:
@@ -84,58 +83,83 @@ pub async fn execute(
         // pressing Save must never be failed by a call to another company's API.
         "identity.apply" => {
             let cfg = state.db.identity_config(item.guild_id).map_err(logged_db)?;
-            let staged = state
+            let avatar = state
                 .db
                 .guild_report(item.guild_id, "avatar-pending")
                 .map_err(logged_db)?;
-            let body = match identity_payload(&cfg, staged.as_ref()) {
-                None => {
-                    // Nothing configured is not a failure. It is a save with no effect, and
-                    // the report is what tells the dashboard so in words.
-                    let _ = state.db.put_guild_report(
-                        item.guild_id,
-                        "identity",
-                        &json!({ "reportedAt": now(), "ok": true, "skipped": "nothing to apply" }),
-                    );
-                    return Ok(());
-                }
-                Some(v) => v,
-            };
-            let req = serenity::http::Request::new(
-                serenity::http::Route::GuildMemberMe { guild_id: guild },
-                serenity::http::LightMethod::Patch,
-            )
-            .body(Some(body.to_string().into_bytes()));
-            match ctx.http.fire::<Value>(req).await {
-                Ok(_) => {
-                    // Single use, and only on success: a refused upload leaves the staged
-                    // bytes in place, so the next apply retries them.
-                    if staged.is_some() {
-                        let _ = state
-                            .db
-                            .delete_guild_report(item.guild_id, "avatar-pending");
+            let banner = state
+                .db
+                .guild_report(item.guild_id, "banner-pending")
+                .map_err(logged_db)?;
+            let plan = identity_plan(&cfg, avatar.as_ref(), banner.as_ref());
+            if plan.is_empty() {
+                // Nothing configured is not a failure. It is a save with no effect, and
+                // the report is what tells the dashboard so in words.
+                let _ = state.db.put_guild_report(
+                    item.guild_id,
+                    "identity",
+                    &json!({ "reportedAt": now(), "ok": true, "skipped": "nothing to apply" }),
+                );
+                return Ok(());
+            }
+
+            // One request per field. Discord keeps these facts in two places, and answers a key the
+            // token may not write by refusing the whole body - so a batched apply meant that a
+            // banner the account is not allowed to set took the avatar and the bio down with it, and
+            // left one error message to explain three fields. Field by field, what landed and what
+            // was refused are both things the report can say, and the outbox row fails on the truth
+            // rather than on a guess.
+            let mut landed: Vec<&'static str> = Vec::new();
+            let mut refused = serde_json::Map::new();
+            for (half, field, body) in &plan {
+                let route = if *half == "member" {
+                    serenity::http::Route::GuildMemberMe { guild_id: guild }
+                } else {
+                    serenity::http::Route::UserMe
+                };
+                let req = serenity::http::Request::new(route, serenity::http::LightMethod::Patch)
+                    .body(Some(body.to_string().into_bytes()));
+                match ctx.http.fire::<Value>(req).await {
+                    Ok(_) => {
+                        landed.push(*field);
+                        // Staged bytes are spent once, and only once Discord has taken them: a
+                        // refused upload stays where it is so the next apply retries it.
+                        if matches!(*field, "avatar" | "banner") {
+                            let key = format!("{field}-pending");
+                            let _ = state.db.delete_guild_report(item.guild_id, &key);
+                        }
                     }
-                    let _ = state.db.put_guild_report(
-                        item.guild_id,
-                        "identity",
-                        &json!({
-                            "reportedAt": now(),
-                            "ok": true,
-                            "fields": body.as_object().map(|m| m.keys().cloned().collect::<Vec<_>>()).unwrap_or_default(),
-                        }),
-                    );
-                    // Arms here are unit-shaped; the function decides the `Ok`. A refused
-                    // call is the one case that must not fall through, so it returns early.
+                    Err(e) => {
+                        let text = clamp_chars(&e.to_string().replace('\n', " "), 280);
+                        refused.insert((*field).to_string(), json!(text));
+                    }
                 }
-                Err(e) => {
-                    let text = logged(e);
-                    let _ = state.db.put_guild_report(
-                        item.guild_id,
-                        "identity",
-                        &json!({ "reportedAt": now(), "ok": false, "error": text, "queued": item.id }),
-                    );
-                    return Err(text);
-                }
+            }
+            let error = refusal_note(plan.len(), &refused);
+            let mut report = json!({
+                "reportedAt": now(),
+                "ok": error.is_none(),
+                // Which half of the API took something, so the page can say "this server" and "the
+                // account" instead of implying the two are one switch.
+                "member": landed.contains(&"nick"),
+                "profile": landed.iter().any(|f| *f != "nick"),
+                "fields": landed,
+            });
+            if !refused.is_empty() {
+                report["refused"] = Value::Object(refused);
+            }
+            if let Some(text) = &error {
+                report["error"] = json!(text);
+                report["queued"] = json!(item.id);
+            }
+            let _ = state
+                .db
+                .put_guild_report(item.guild_id, "identity", &report);
+            if let Some(text) = error {
+                // Arms here are unit-shaped; the function decides the `Ok`. A refusal is the one
+                // case that must not fall through, because the operator has to be able to tell
+                // "applied" from "Discord said no", and a failed row is what makes the poll say so.
+                return Err(text);
             }
         }
         "commands.sync" => {
@@ -158,6 +182,16 @@ pub async fn execute(
                 .ban_with_reason(&ctx.http, user, days, &reason)
                 .await
                 .map_err(logged)?;
+            tell(
+                state,
+                ctx,
+                item,
+                Kind::Ban,
+                user,
+                &reason,
+                (days > 0).then(|| format!("last {days} day(s) of messages deleted")),
+            )
+            .await;
         }
         "moderate.softban" => {
             // Ban plus immediate unban is the only way to clear a member's recent
@@ -173,10 +207,13 @@ pub async fn execute(
                 .remove_ban(guild, user, Some(&reason))
                 .await
                 .map_err(logged)?;
+            tell(state, ctx, item, Kind::SoftBan, user, &reason, None).await;
         }
         "moderate.kick" => {
             let user = user_of(args)?;
+            let reason = reason_of(args);
             guild.kick(&ctx.http, user).await.map_err(logged)?;
+            tell(state, ctx, item, Kind::Kick, user, &reason, None).await;
         }
         "moderate.unban" => {
             let user = user_of(args)?;
@@ -187,6 +224,8 @@ pub async fn execute(
             if let Some(ban_id) = args.get("banId").and_then(Value::as_i64) {
                 let _ = state.db.mark_unbanned(item.guild_id, ban_id);
             }
+            let user = user_of(args)?;
+            tell(state, ctx, item, Kind::Unban, user, &reason_of(args), None).await;
         }
         "moderate.timeout" => {
             let user = user_of(args)?;
@@ -196,11 +235,21 @@ pub async fn execute(
                 .unwrap_or(10)
                 .clamp(1, 40_320);
             let until = crate::gate::rfc3339(now() + minutes * 60);
-            let edit = serenity::all::EditMember::new().disable_communication_until(until);
+            let edit = serenity::all::EditMember::new().disable_communication_until(until.clone());
             guild
                 .edit_member(&ctx.http, user, edit)
                 .await
                 .map_err(logged)?;
+            tell(
+                state,
+                ctx,
+                item,
+                Kind::Timeout,
+                user,
+                &reason_of(args),
+                Some(format!("{minutes} minute(s), until {until}")),
+            )
+            .await;
         }
         "moderate.purge" => {
             purge(state, ctx, item.guild_id, args).await?;
@@ -239,14 +288,89 @@ pub async fn execute(
                 .map_err(logged_db)?
                 .ok_or("ticket is gone")?;
             let channel = ChannelId::new(ticket.channel_id.as_u64());
-            let body = format!("**Support:** {}", clamp_chars(&content, 1800));
+            // The guild already decides what a ticket card looks like, and a reply is a ticket
+            // card: reading the colour from the settings is what makes "I set white" mean something
+            // here instead of arriving blurple forever.
+            let colour = state
+                .db
+                .ticket_config(item.guild_id)
+                .unwrap_or_default()
+                // `TicketConfig` carries a plain u32, so nothing here is "unset": the default the
+                // model gives a fresh install is Discord's own blurple.
+                .embed_color
+                & 0xff_ff_ff;
+            let card = CreateEmbed::new()
+                .color(colour)
+                .title("Support replied")
+                .description(clamp_chars(&content, 1800))
+                .field("From", item.actor_label.clone(), true)
+                .field("Ticket", format!("#{}", ticket.reference), true);
             channel
-                .send_message(&ctx.http, CreateMessage::new().content(body))
+                .send_message(&ctx.http, CreateMessage::new().embed(card))
                 .await
                 .map_err(logged)?;
         }
         "raid.lockdown" => {
-            lockdown(state, ctx, item.guild_id, args, guild).await?;
+            let plan = crate::raid::Plan {
+                active: args.get("active").and_then(Value::as_bool).unwrap_or(true),
+                minutes: args
+                    .get("minutes")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(15)
+                    .clamp(1, 1440),
+                slowmode_secs: args
+                    .get("slowmodeSecs")
+                    .and_then(Value::as_i64)
+                    .unwrap_or(21_600)
+                    .clamp(0, 21_600) as u16,
+                raise_verification: args
+                    .get("raiseVerification")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false),
+                notice: args
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+            };
+            crate::raid::apply(state, ctx, item.guild_id, plan).await?;
+        }
+        // The panel's channel and role pickers read this report. Refreshing it on request is the
+        // difference between "the bot has not reported this server's channels yet" for five
+        // minutes and a list that appears when somebody opens the box.
+        "picker.refresh" => {
+            let n = crate::tasks::report_picker(state, ctx, item.guild_id, true).await;
+            tracing::debug!(guild = %item.guild_id, entries = n, "picker report refreshed");
+        }
+        // A sticky written in the dashboard should be in the channel, not waiting for
+        // `everyMessages` messages of chatter to arrive first. One row of the table is enough to
+        // post it: the same `apply_sticky` the count-driven pass uses, so a "post now" and a
+        // "post because the channel moved" cannot end up looking different.
+        "sticky.post" => {
+            let id = args
+                .get("sticky")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| "sticky is missing".to_string())?;
+            let cfg = state.db.sticky_config(item.guild_id).map_err(logged_db)?;
+            let rows = state
+                .db
+                .stickies_for_guild(item.guild_id)
+                .map_err(logged_db)?;
+            let sticky = rows
+                .into_iter()
+                .find(|r| r.id == id)
+                .ok_or("sticky is gone")?;
+            let ch = ChannelId::new(sticky.channel_id.as_u64());
+            events::apply_sticky(state, ctx, &cfg, item.guild_id, ch, &sticky).await?;
+        }
+        // Ticket types exist as rows; a row with no button in a channel is a configuration nobody
+        // can reach, so creating or deleting one redraws the board it belongs to.
+        "panel.post" | "panel.redraw" => {
+            let channel = args
+                .get("channel")
+                .and_then(Value::as_str)
+                .and_then(|s| s.parse::<u64>().ok())
+                .ok_or_else(|| "channel is missing".to_string())?;
+            events::draw_panels(state, ctx, item.guild_id, Snowflake(channel)).await?;
         }
         other => return Err(format!("no worker support for action {other:?}")),
     }
@@ -327,115 +451,6 @@ async fn purge(
     Ok(())
 }
 
-/// Lock down or release a guild. Slowmode at the maximum is used rather than a
-/// permission overwrite on every channel: it is exactly what Discord's own "pause
-/// activity" does, it is reversible without remembering what each channel's overwrite
-/// was, and it cannot be mistaken for a permanent change by an auditor.
-async fn lockdown(
-    state: &BotState,
-    ctx: &serenity::all::Context,
-    guild: Snowflake,
-    args: &Value,
-    g: GuildId,
-) -> Result<(), String> {
-    let active = args.get("active").and_then(Value::as_bool).unwrap_or(true);
-    let minutes = args
-        .get("minutes")
-        .and_then(Value::as_i64)
-        .unwrap_or(15)
-        .clamp(1, 1440);
-    let slowmode = args
-        .get("slowmodeSecs")
-        .and_then(Value::as_i64)
-        .unwrap_or(21_600)
-        .clamp(0, 21_600) as u16;
-    let raise = args
-        .get("raiseVerification")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
-    let notice = args
-        .get("message")
-        .and_then(Value::as_str)
-        .map(str::to_string);
-
-    let channels = g.channels(&ctx.http).await.map_err(logged)?;
-    let mut touched = 0usize;
-    for (id, _) in channels {
-        if !state.managed.contains(&guild) {
-            break;
-        }
-        let edit = EditChannel::new().rate_limit_per_user(if active { slowmode } else { 0 });
-        // One channel failing (no permission, archived) must not strand the rest.
-        match id.edit(&ctx.http, edit).await {
-            Ok(_) => touched += 1,
-            Err(e) if is_transient(&e) => {
-                tracing::debug!(channel = %id, "slowmode deferred to the next pass");
-            }
-            Err(_) => {}
-        }
-    }
-    if active {
-        if let Some(until) = now().checked_add(minutes * 60) {
-            state.lockdown_until.insert(guild, until);
-        }
-        if raise {
-            let _ = g
-                .edit(
-                    &ctx.http,
-                    EditGuild::new().verification_level(VerificationLevel::High),
-                )
-                .await;
-        }
-    } else {
-        state.lockdown_until.remove(&guild);
-        if raise {
-            let _ = g
-                .edit(
-                    &ctx.http,
-                    EditGuild::new().verification_level(VerificationLevel::None),
-                )
-                .await;
-        }
-    }
-    if let Some(text) = notice {
-        if let Some(channel) = notice_channel(state, guild) {
-            let c = ChannelId::new(channel.as_u64());
-            let body = if active {
-                format!(
-                    "🔒 **Server locked** for {minutes} minutes.\n{}",
-                    clamp_chars(&text, 900)
-                )
-            } else {
-                "🔓 **Server unlocked.** Normal activity has resumed.".to_string()
-            };
-            let _ = c
-                .send_message(&ctx.http, CreateMessage::new().content(body))
-                .await;
-        }
-    }
-    // No raid-event write here: the API opened (or is holding) the event, and a worker
-    // inventing `id = 0` would corrupt the history the dashboard renders.
-    tracing::info!(%guild, active, touched, "lockdown applied");
-    Ok(())
-}
-
-/// The channel a raid notice goes to: the configured alert channel, else the system
-/// channel, else nothing — a bot that cannot find a channel stays quiet rather than
-/// posting into whichever channel it guessed.
-fn notice_channel(state: &BotState, guild: Snowflake) -> Option<Snowflake> {
-    let cfg = state.db.raid_config(guild).ok()?;
-    if let Some(c) = cfg.alert_channel_id {
-        return Some(c);
-    }
-    let id = state
-        .ctx()?
-        .cache
-        .guild(guild.as_u64())
-        .and_then(|g| g.system_channel_id)
-        .map(|c| c.get())?;
-    Some(Snowflake(id))
-}
-
 /// The `user` argument, from any shape the API may have written: a bare id string, a
 //  mention, or a number. Accepting all three is what lets `POST /actions` be written
 /// loosely without the worker rejecting a valid request later.
@@ -469,6 +484,41 @@ fn reason_of(args: &Value) -> String {
     }
 }
 
+/// The two cards an action owes: a DM to the member and a card in the mod log. One helper, called
+/// after the Discord call that acted, so no arm can forget to tell anybody, and a failure to tell
+/// never unwinds the action: the ban has happened, and a member with DMs closed is not a reason to
+/// reverse it.
+async fn tell(
+    state: &BotState,
+    ctx: &serenity::all::Context,
+    item: &OutboxItem,
+    kind: Kind,
+    user: UserId,
+    reason: &str,
+    detail: Option<String>,
+) {
+    let name = item
+        .args
+        .get("userLabel")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    let a = Action {
+        kind,
+        target: Snowflake(user.get()),
+        target_name: name,
+        actor: &item.actor_label,
+        reason,
+        detail: detail.as_deref(),
+        // A purge knows the channel it happened in, and so does a ticket action; for the rest the
+        // mod-log channel is the only place the card belongs.
+        fallback_channel: None,
+    };
+    let out = notify::deliver(state, ctx, item.guild_id, &a).await;
+    if kind.dms() && !out.dm {
+        tracing::debug!(user = %user, "the member could not be DMed about this action");
+    }
+}
+
 fn logged(e: serenity::Error) -> String {
     let transient = is_transient(&e);
     let text = e.to_string();
@@ -485,47 +535,91 @@ fn logged_db(e: aerona_core::error::Error) -> String {
     e.to_string()
 }
 
-/// The body for Modify Current Member, or `None` when there is nothing to send.
+/// The requests one Apply is allowed to make for this guild, in order: which half of Discord's API
+/// the field lives in (`member` is this server's copy of the bot, `profile` is the account), the
+/// field's name, and the one-key body that writes it.
 ///
-/// Split out of the arm above because it is the part with real semantics in it — clear vs.
-/// leave-alone, staged vs. stale — and it has to be testable without a gateway or a network.
-fn identity_payload(
+/// A field is `None` or `Some`, and the difference matters: `None` is "nobody has said anything about
+/// this", which sends nothing, and `Some("")` is "take it off", which sends a null. Omitting a key
+/// and sending a null are different instructions, and conflating them is how clearing a field on the
+/// panel leaves it on Discord for a week.
+///
+/// The pictures come from the staged reports, never from the stored digests: an `avatar_hash` on
+/// disk is a note that something was uploaded once, and a hash sent in an image's place is a request
+/// Discord fails for reasons no operator can read.
+fn identity_plan(
     cfg: &aerona_core::models::IdentityConfig,
-    staged: Option<&Value>,
-) -> Option<Value> {
-    let mut out = serde_json::Map::new();
+    avatar: Option<&Value>,
+    banner: Option<&Value>,
+) -> Vec<(&'static str, &'static str, Value)> {
+    let mut out: Vec<(&'static str, &'static str, Value)> = Vec::new();
+    // The guild's own fact goes first. `bio` used to ride along in this body, which is why a saved
+    // biography used to appear nowhere: this endpoint has no such key, and Discord ignores what it
+    // does not know.
     if let Some(nick) = cfg.nick.as_deref() {
-        out.insert(
-            "nick".into(),
-            if nick.is_empty() {
-                Value::Null
-            } else {
-                json!(nick)
-            },
-        );
+        out.push(("member", "nick", json!({ "nick": written(nick) })));
+    }
+    for (field, staged) in [("avatar", avatar), ("banner", banner)] {
+        let value = match staged {
+            Some(v) if v.get("clear").and_then(Value::as_bool).unwrap_or(false) => {
+                Some(Value::Null)
+            }
+            Some(v) => v
+                .get("data")
+                .and_then(Value::as_str)
+                .map(|data| json!(data)),
+            None => None,
+        };
+        if let Some(value) = value {
+            out.push(("profile", field, json!({ (field): value })));
+        }
     }
     if let Some(bio) = cfg.bio.as_deref() {
-        out.insert(
-            "bio".into(),
-            if bio.is_empty() {
-                Value::Null
-            } else {
-                json!(bio)
-            },
-        );
+        out.push(("profile", "bio", json!({ "bio": written(bio) })));
     }
-    match staged {
-        Some(v) if v.get("clear").and_then(Value::as_bool).unwrap_or(false) => {
-            out.insert("avatar".into(), Value::Null);
+    for (field, raw) in [
+        ("avatar_decoration_id", cfg.avatar_decoration_id.as_deref()),
+        ("banner_decoration_id", cfg.banner_decoration_id.as_deref()),
+    ] {
+        // The id goes as text: the model stores a string rather than a snowflake, because what
+        // Discord wants back is the same digits the account owns it by.
+        if let Some(id) = raw {
+            out.push(("profile", field, json!({ (field): written(id.trim()) })));
         }
-        Some(v) => {
-            if let Some(data) = v.get("data").and_then(Value::as_str) {
-                out.insert("avatar".into(), json!(data));
-            }
-        }
-        None => {}
     }
-    (!out.is_empty()).then_some(Value::Object(out))
+    out
+}
+
+/// A stored value as Discord is told about it: the text for what to change to, a null for what to
+/// take off. The empty string is the clear, because that is what the model keeps for it and what
+/// `normalize` promises the panel.
+fn written(value: &str) -> Value {
+    if value.is_empty() {
+        Value::Null
+    } else {
+        json!(value)
+    }
+}
+
+/// What the refusals add up to: the one sentence the panel shows and the outbox row carries. `None`
+/// means Discord took everything the page asked for. The per-field reasons stay in the report as a
+/// map, because a summary that hides which field was refused is the same silence as a batch.
+fn refusal_note(asked: usize, refused: &serde_json::Map<String, Value>) -> Option<String> {
+    if refused.is_empty() {
+        return None;
+    }
+    let names: Vec<&str> = refused.keys().map(String::as_str).collect();
+    let first = refused
+        .values()
+        .next()
+        .and_then(Value::as_str)
+        .unwrap_or("no reason given");
+    Some(format!(
+        "Discord refused {} of {}: {}; it said: {first}",
+        names.len(),
+        asked,
+        names.join(", ")
+    ))
 }
 
 #[cfg(test)]
@@ -536,39 +630,133 @@ mod tests {
     #[test]
     fn an_empty_field_clears_it_and_a_missing_one_does_not() {
         use aerona_core::models::IdentityConfig as I;
-        let mut cfg = I::default();
-        assert_eq!(
-            identity_payload(&cfg, None),
-            None,
+        assert!(
+            identity_plan(&I::default(), None, None).is_empty(),
             "nothing configured sends nothing"
         );
-        cfg.nick = Some(String::new());
-        cfg.bio = Some("keeps to itself".into());
+        let cfg = I {
+            nick: Some(String::new()),
+            bio: Some("keeps to itself".into()),
+            ..Default::default()
+        };
+        let plan = identity_plan(&cfg, None, None);
+        let names: Vec<&str> = plan.iter().map(|(_, f, _)| *f).collect();
+        assert_eq!(names, ["nick", "bio"], "{plan:?}");
+        assert_eq!(plan[0].0, "member", "a nickname is this server's fact");
+        assert_eq!(plan[1].0, "profile", "a biography is the account's");
         assert_eq!(
-            identity_payload(&cfg, None),
-            Some(json!({ "nick": null, "bio": "keeps to itself" })),
+            plan[0].2,
+            json!({ "nick": null }),
             "an empty string is a clear, not an omission"
         );
-        cfg.avatar_hash = Some("sha256:1234567890abcdef".into());
-        assert_eq!(
-            identity_payload(&cfg, Some(&json!({ "clear": true })))
-                .unwrap()
-                .get("avatar"),
-            Some(&json!(null)),
-            "removing the guild avatar is an explicit null, never an omitted key"
-        );
-        assert_eq!(
-            identity_payload(&cfg, Some(&json!({ "data": "data:image/png;base64,AAA" })))
-                .unwrap()
-                .get("avatar"),
-            Some(&json!("data:image/png;base64,AAA"))
-        );
-        // A stored hash with no staged bytes must not invent an upload.
-        let only_hash = I {
+        assert_eq!(plan[1].2, json!({ "bio": "keeps to itself" }), "{plan:?}");
+    }
+
+    #[test]
+    fn a_staged_picture_is_sent_once_and_a_hash_alone_is_not_a_picture() {
+        use aerona_core::models::IdentityConfig as I;
+        let cfg = I {
             avatar_hash: Some("sha256:1234567890abcdef".into()),
             ..Default::default()
         };
-        assert_eq!(identity_payload(&only_hash, None), None);
+        assert!(
+            identity_plan(&cfg, None, None).is_empty(),
+            "a stored hash with no staged bytes must not invent an upload"
+        );
+        let plan = identity_plan(
+            &cfg,
+            Some(&json!({ "data": "data:image/png;base64,AAA" })),
+            Some(&json!({ "data": "data:image/png;base64,BBB" })),
+        );
+        let bodies: Vec<&Value> = plan.iter().map(|(_, _, b)| b).collect();
+        assert_eq!(
+            bodies,
+            vec![
+                &json!({ "avatar": "data:image/png;base64,AAA" }),
+                &json!({ "banner": "data:image/png;base64,BBB" }),
+            ],
+            "each picture from its own staged slot, in a request of its own: {plan:?}"
+        );
+        let plan = identity_plan(&cfg, Some(&json!({ "clear": true })), None);
+        assert_eq!(
+            plan.as_slice(),
+            &[("profile", "avatar", json!({ "avatar": null }))][..],
+            "removing the avatar is an explicit null, and the banner is left alone: {plan:?}"
+        );
+    }
+
+    #[test]
+    fn a_decoration_is_an_id_or_a_clear_never_a_guess() {
+        use aerona_core::models::IdentityConfig as I;
+        let cfg = I {
+            avatar_decoration_id: Some("1207328054057771069".into()),
+            banner_decoration_id: Some("  ".into()),
+            ..Default::default()
+        };
+        let plan = identity_plan(&cfg, None, None);
+        let got: Vec<(&str, Value)> = plan.iter().map(|(_, f, b)| (*f, b.clone())).collect();
+        assert_eq!(
+            got,
+            vec![
+                (
+                    "avatar_decoration_id",
+                    json!({ "avatar_decoration_id": "1207328054057771069" })
+                ),
+                (
+                    "banner_decoration_id",
+                    json!({ "banner_decoration_id": null })
+                ),
+            ],
+            "a set id is sent, and whitespace-only counts as the operator clearing it: {plan:?}"
+        );
+        assert!(
+            identity_plan(&I::default(), None, None).is_empty(),
+            "an account nobody told about a decoration keeps what it has"
+        );
+    }
+
+    /// Why the apply is one request per field rather than one request per endpoint: a body Discord
+    /// refuses has to cost the operator one field, not the whole save.
+    #[test]
+    fn a_field_travels_alone_and_a_refusal_names_only_itself() {
+        use aerona_core::models::IdentityConfig as I;
+        let plan = identity_plan(
+            &I {
+                nick: Some("Nine".into()),
+                bio: Some(String::new()),
+                avatar_decoration_id: Some("12".into()),
+                ..Default::default()
+            },
+            Some(&json!({ "data": "data:image/png;base64,AAA" })),
+            None,
+        );
+        assert_eq!(plan.len(), 4, "{plan:?}");
+        for (half, field, body) in &plan {
+            let keys = body.as_object().expect("an object body");
+            assert_eq!(
+                keys.len(),
+                1,
+                "{half}.{field} travels alone, so a refusal cannot take the others with it: {body}"
+            );
+            assert!(keys.contains_key(*field), "the key is the field: {body}");
+        }
+
+        let mut refused = serde_json::Map::new();
+        refused.insert(
+            "banner".into(),
+            json!("This endpoint requires an OAuth2 token"),
+        );
+        let note = refusal_note(plan.len(), &refused).expect("a note when something was refused");
+        assert!(note.contains("banner"), "{note}");
+        assert!(
+            !note.contains("nick") && !note.contains("bio"),
+            "a refusal must not accuse the fields that landed: {note}"
+        );
+        assert!(note.contains("1 of 4"), "and say how much was lost: {note}");
+        assert!(
+            refusal_note(1, &serde_json::Map::new()).is_none(),
+            "nothing refused is not an error"
+        );
     }
 
     #[test]

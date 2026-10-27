@@ -2,14 +2,14 @@
 //!
 //! Threats this module exists to defuse:
 //!
-//! * **Timing oracles** on secrets — every comparison of a token/key/code is
+//! * **Timing oracles** on secrets - every comparison of a token/key/code is
 //!   constant time, so no attacker can bisect a 256-bit key by measuring
 //!   response latency.
-//! * **Length-extension and cross-tenant forgery** — tokens are keyed with an
+//! * **Length-extension and cross-tenant forgery** - tokens are keyed with an
 //!   HMAC over a per-install secret pepper, never bare-hashed.
-//! * **Log injection** — anything that reaches a log line is scrubbed of
+//! * **Log injection** - anything that reaches a log line is scrubbed of
 //!   newlines/controls and truncated.
-//! * **Secret bleed** — `Secret` zeroes its memory on drop and redacts itself in
+//! * **Secret bleed** - `Secret` zeroes its memory on drop and redacts itself in
 //!   `Debug`, so a stray `{:?}` cannot write a bot token to stdout.
 
 use std::fmt;
@@ -167,7 +167,7 @@ pub fn derive_pepper(material: &str) -> [u8; 32] {
     k
 }
 
-/// HMAC-SHA256 over a canonical payload, base64url — used for the stateless half
+/// HMAC-SHA256 over a canonical payload, base64url - used for the stateless half
 /// of the session CSRF token binding (no signing of user data, only of bindings).
 pub fn sign(pepper: &[u8], payload: &str) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(pepper).expect("hmac accepts any key length");
@@ -225,7 +225,38 @@ pub fn scrub(input: &str, max_chars: usize) -> String {
     out.trim().to_string()
 }
 
-/// Like [`scrub`], but truncates by *characters* with no ellipsis — for stored
+/// [`scrub`] for the two places an operator is allowed to break a line: an embed body and a
+/// ticket card's intro. Each line is filtered on its own and the block is capped in lines as well
+/// as characters, because a settings document that accepts unlimited lines turns a card into a
+/// wall. Blank lines are dropped rather than kept: a paragraph break in Discord is one `\n`, and
+/// pasting text with two of them should not double the height of a card.
+pub fn scrub_block(input: &str, max_chars: usize) -> String {
+    const MAX_LINES: usize = 20;
+    const LINE_MAX: usize = 300;
+    let mut out = String::new();
+    for line in input.lines().take(MAX_LINES) {
+        let one = scrub(line, LINE_MAX);
+        if one.is_empty() {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(&one);
+        if out.chars().count() >= max_chars {
+            let cut = out
+                .char_indices()
+                .nth(max_chars)
+                .map(|(i, _)| i)
+                .unwrap_or(out.len());
+            out.truncate(cut);
+            break;
+        }
+    }
+    out
+}
+
+/// Like [`scrub`], but truncates by *characters* with no ellipsis - for stored
 /// content where an appended `…` would corrupt the text (transcripts, notes).
 pub fn clean(input: &str, max_chars: usize) -> String {
     let mut s = scrub(input, max_chars);
@@ -314,10 +345,10 @@ pub fn split_credential(raw: &str) -> Option<(String, String)> {
 ///
 /// No `upgrade-insecure-requests`, deliberately. That directive puts the page in
 /// "protected mode", in which a browser rewrites *every* `http://` subresource to
-/// `https://` — including `/assets/index-*.js` and `/api/v1/...` on the origin the page
+/// `https://` - including `/assets/index-*.js` and `/api/v1/...` on the origin the page
 /// itself was served from. A game panel gives you a bare TCP port with no TLS in front of
 /// it, which is where most of these installs live, and there the upgrade turns a working
-/// dashboard into a blank page whose every request dies with `ERR_SSL_PROTOCOL_ERROR` —
+/// dashboard into a blank page whose every request dies with `ERR_SSL_PROTOCOL_ERROR` -
 /// the same symptom as reaching out to `https://` on the http port. It also protects
 /// nothing here: every source above is `'self'`, `data:`, or an explicit `https://` host,
 /// so there is no mixed content to upgrade. If you terminate TLS in front of Aerona,
@@ -343,7 +374,7 @@ pub fn csp_header(nonce: Option<&str>) -> String {
 /// Headers that must appear on *every* response, success or error.
 ///
 /// `secure` is whether the install is reached over a *trustworthy* origin in the browser's
-/// sense — https, or localhost. It gates `Cross-Origin-Opener-Policy` alone, and the reason is
+/// sense - https, or localhost. It gates `Cross-Origin-Opener-Policy` alone, and the reason is
 /// the operator's console rather than the threat model: on a plain-http origin a browser ignores
 /// that header and prints a line saying that it is ignoring it, once per document. A control that
 /// can never apply is noise, and the common Aerona deployment is a tunnel in front of
@@ -360,7 +391,7 @@ pub fn security_headers(nonce: Option<&str>, secure: bool) -> Vec<(&'static str,
         ("referrer-policy", "no-referrer".into()),
         (
             "permissions-policy",
-            // A name the browser does not implement is not a denied capability — it is a console
+            // A name the browser does not implement is not a denied capability - it is a console
             // error ("Unrecognized feature '…' in 'Permissions-Policy'") once per page load, for
             // a policy the parser dropped. The platform retired half of the original list:
             // `document-domain` was reverted, and `sync-xhr`, `ambient-light-sensor`, `battery`,
@@ -391,6 +422,24 @@ pub const API_CACHE_CONTROL: &str = "no-store, no-cache, must-revalidate, privat
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn scrub_block_keeps_line_breaks_and_nothing_else() {
+        assert_eq!(scrub_block("one\ntwo", 100), "one\ntwo");
+        assert_eq!(scrub_block("a\u{202e}b\n\u{7}x", 100), "a b\nx");
+        assert_eq!(
+            scrub_block("  \n\n", 100),
+            "",
+            "blank lines are not content"
+        );
+        let long = scrub_block(&"y".repeat(500), 50);
+        assert_eq!(long.chars().count(), 50, "the whole block, not each line");
+        let many = (1..=25)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert_eq!(scrub_block(&many, 500).lines().count(), 20);
+    }
+
     use super::*;
 
     #[test]
@@ -516,7 +565,7 @@ mod tests {
         assert!(!names(false).contains(&"cross-origin-opener-policy"));
         // Everything else is unconditional: a plain-http install still refuses framing, sniffing
         // and cross-origin reads. What it cannot get is *isolation*, and the browser says so once
-        // per document — which is the whole reason the header is dropped rather than kept.
+        // per document - which is the whole reason the header is dropped rather than kept.
         for n in [
             "content-security-policy",
             "x-content-type-options",
@@ -533,7 +582,7 @@ mod tests {
     #[test]
     fn permissions_policy_denies_only_features_that_exist() {
         // The message this keeps out of the operator's console is `Unrecognized feature '…' in
-        // 'Permissions-Policy' header: feature is not present in spec` — once per page load per
+        // 'Permissions-Policy' header: feature is not present in spec` - once per page load per
         // bogus name. Checked against a list of retired features rather than against a copy of the
         // header: a self-comparing test is exactly what let them in.
         let policy = security_headers(None, true)

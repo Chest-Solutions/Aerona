@@ -95,7 +95,7 @@ impl Db {
     // -- levels --------------------------------------------------------------
 
     /// Cumulative XP needed to *reach* `level`: level 1 costs 100, level 2 costs
-    /// 200 more, and so on — `total(l) = 100 * l(l+1) / 2`. Both directions are
+    /// 200 more, and so on - `total(l) = 100 * l(l+1) / 2`. Both directions are
     /// derived from this single definition so a level-up can never disagree with
     /// the threshold shown in the dashboard.
     pub fn xp_for_level(level: u32) -> i64 {
@@ -124,7 +124,7 @@ impl Db {
         let amount = xp.clamp(0, 1000);
         let at = now();
         self.tx(move |conn| {
-            // RETURNING xp — reading `level` here would return the *stored* level,
+            // RETURNING xp - reading `level` here would return the *stored* level,
             // which is stale until we have recomputed it.
             let (new_xp, prev_level): (i64, i64) = conn
                 .query_row(
@@ -305,7 +305,7 @@ impl Db {
 
     /// Add or update a local rule. `UNIQUE (guild, pattern, mode)` means the
     /// dashboard can save the same rule twice without duplicating it, and the
-    /// pattern is validated *before* it reaches the database — an unusable regex
+    /// pattern is validated *before* it reaches the database - an unusable regex
     /// stored as a rule would be evaluated on every message forever.
     pub fn put_custom_rule(
         &self,
@@ -316,7 +316,7 @@ impl Db {
         use crate::text;
         // Length is checked on the *raw* input: `clean` truncates, and a silently
         // truncated pattern would store a rule that matches something other than
-        // what the operator typed. A pattern is code, not prose — refuse it.
+        // what the operator typed. A pattern is code, not prose - refuse it.
         if rule.pattern.chars().count() > 512 {
             return Err(Error::Invalid(
                 "patterns are limited to 512 characters".into(),
@@ -466,7 +466,7 @@ impl Db {
     // -- AI verdict cache ----------------------------------------------------
 
     /// `hash` is SHA-256 of `author + normalized text`. A hit means we skip the
-    /// provider entirely — both a latency win and the difference between 1 and
+    /// provider entirely - both a latency win and the difference between 1 and
     /// 1000 billed units during a repost flood.
     pub fn cached_verdict(
         &self,
@@ -707,6 +707,9 @@ impl Db {
         })?;
         let n = self.prune_log_messages(log_cache_per_guild)?;
         removed["logCache"] = json!(n);
+        // The mod log is bounded by row count per guild rather than age, because a quiet
+        // server's audit trail is still an audit trail and a busy one outgrows any window.
+        removed["logEvents"] = json!(self.prune_log_events()?);
         self.mark_housekeeping()?;
         Ok(removed)
     }
@@ -985,7 +988,7 @@ mod tests {
             assert!(r.is_err(), "{bad:?} must be rejected");
         }
         // A *literal* pattern is never compiled, so regex metacharacters are just
-        // characters there — `a{1,99999}` must be accepted as text to look for.
+        // characters there - `a{1,99999}` must be accepted as text to look for.
         assert!(
             db.put_custom_rule(
                 g(),
@@ -1154,7 +1157,7 @@ mod tests {
             .cached_verdict(g(), Snowflake(1), "h1")
             .unwrap()
             .is_none());
-        // A zero/negative TTL still floors at five seconds — never "forever stale".
+        // A zero/negative TTL still floors at five seconds - never "forever stale".
         db.cache_verdict(g(), Snowflake(1), "h3", &ev, 0).unwrap();
         assert!(db
             .cached_verdict(g(), Snowflake(1), "h3")

@@ -7,16 +7,16 @@ One command, no arguments, and it refuses rather than shipping something surpris
 the counterpart to `scripts/build-static.sh` and `dashboard/`'s build: run those first, then
 this. The archive is a *product*, not a backup, so the file list is decided by rules:
 
-* excluded — `node_modules`, `target`, `.venv`, `__pycache__`, `.cache`, `dist-server`,
+* excluded - `node_modules`, `target`, `.venv`, `__pycache__`, `.cache`, `dist-server`,
   `.git`, and anything under `data/` (that is somebody's running database, not source);
-* refused outright — a dot-env or key material anywhere in the tree is a build error, because
+* refused outright - a dot-env or key material anywhere in the tree is a build error, because
   the one thing a self-hosted product must never leak is its own `.env`;
-* required — `main.py`, `bin/aerona-<platform>`, `dashboard/dist/index.html`, the app shell
+* required - `main.py`, `bin/aerona-<platform>`, `dashboard/dist/index.html`, the app shell
   `dashboard/dist/shell.html` and its `theme-boot.js`, at least one `dashboard/dist/assets/*.css`,
   the launcher tests. A release missing the built dashboard is a
   source dump, and the whole point of this archive is that the user needs no build tooling; the
   stylesheet check is what proves the panel was compiled rather than copied.
-* budgeted — 128 MB and 10 000 entries, checked for the repo *and* the zip, so a stray
+* budgeted - 128 MB and 10 000 entries, checked for the repo *and* the zip, so a stray
   `target/` or an accidental video in `public/` fails the run instead of failing the upload.
 
 Writes `aerona-v<version>-<platform>.zip` plus a `.md5` sibling into the directory above the
@@ -121,12 +121,12 @@ def walk() -> tuple[list[Path], list[str], int]:
             r = Path(*rel.parts, name) if rel.parts else Path(name)
             total += p.stat().st_size
             if name in SECRET_NAMES or name.endswith(SECRET_SUFFIXES):
-                problems.append(f"secret-looking file in the tree: {r} — remove it or move it outside the repo")
+                problems.append(f"secret-looking file in the tree: {r} - remove it or move it outside the repo")
                 continue
             if name in {"pairs.txt"} or (r.parts and r.parts[0] == "data"):
                 continue
             if name.endswith(DB_SUFFIXES):
-                problems.append(f"runtime database in the source tree: {r} — the archive ships schema, not data")
+                problems.append(f"runtime database in the source tree: {r} - the archive ships schema, not data")
                 continue
             if name.endswith((".log", ".pyc", ".swp", ".orig")) or name.startswith(".DS_Store"):
                 continue
@@ -149,17 +149,17 @@ def main() -> int:
             problems.append(f"required release file missing: {rel}")
     # The claim this archive exists to keep is "no build tooling required", and the only way to
     # keep it is to ship the compiled panel. One hashed stylesheet is the smallest proof that
-    # `npm run build` ran in this tree — an index.html alone can be a stale copy from a commit.
+    # `npm run build` ran in this tree - an index.html alone can be a stale copy from a commit.
     if not list((ROOT / "dashboard" / "dist" / "assets").glob("*.css")):
-        problems.append("dashboard/dist/assets holds no built stylesheet — run: npm --prefix dashboard run build")
+        problems.append("dashboard/dist/assets holds no built stylesheet - run: npm --prefix dashboard run build")
     if not binary.exists():
-        problems.append(f"no prebuilt binary at bin/aerona-{plat} — run: sh scripts/build-static.sh")
+        problems.append(f"no prebuilt binary at bin/aerona-{plat} - run: sh scripts/build-static.sh")
     elif not os.access(binary, os.X_OK):
         # The most common way this happens is not a bad build but a restored tree: a snapshot, a
         # `git clone` onto a filesystem without modes, or an unzip that skipped the attributes, all
-        # leave the bytes intact and the exec bit off — and a panel that will not start is what the
+        # leave the bytes intact and the exec bit off - and a panel that will not start is what the
         # operator discovers. So say which knob to turn.
-        problems.append(f"bin/aerona-{plat} is not executable — chmod +x it (a copied or restored tree "
+        problems.append(f"bin/aerona-{plat} is not executable - chmod +x it (a copied or restored tree "
                         f"loses the mode bit, and shipping that would ship an install that cannot start)")
     elif sh([str(binary), "--version"]) == "":
         problems.append(f"bin/aerona-{plat} did not answer --version; it is not runnable here")
@@ -178,7 +178,7 @@ def main() -> int:
     rev = f"git {git}" + (" (dirty tree)" if sh(["git", "status", "--porcelain"]) else "") if git else "a source tree with no git history in it"
     dirty = False
     info = "\n".join([
-        f"Aerona {version} — {plat} release archive",
+        f"Aerona {version} - {plat} release archive",
         f"built {stamp} from {rev}",
         "",
         "Run it:",
@@ -190,7 +190,7 @@ def main() -> int:
         "    sh scripts/verify-panel.sh",
         "",
         "Contents:",
-        "    main.py, start.sh, start.bat   the launcher — the only thing you execute",
+        "    main.py, start.sh, start.bat   the launcher - the only thing you execute",
         "    crates/                          the Rust workspace, if you want to rebuild",
         "    dashboard/dist/                  the prerendered site: no npm, no node, already built",
         "    dashboard/src/                   its source, so a fork can change the tokens",

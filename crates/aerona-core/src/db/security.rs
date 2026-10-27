@@ -1,5 +1,5 @@
 //! Auth and infrastructure records: API keys, dashboard sessions, OAuth state,
-//! the audit chain, and the API→bot outbox — plus the pairing-code functions, which no
+//! the audit chain, and the API→bot outbox - plus the pairing-code functions, which no
 //! product surface calls any more (the table and its rows stay for installs that have them;
 //! see the note on `issue_pairing_code`).
 //!
@@ -57,7 +57,7 @@ pub struct Session {
     /// version of the same idea (a list rather than one id); this column stays because a
     /// session written before v4 may still carry it.
     /// `None` means "install-wide" (the OAuth path, after the bot has reported the
-    /// operator's guilds) — which is why it is *not* derived from `guilds`: a
+    /// operator's guilds) - which is why it is *not* derived from `guilds`: a
     /// bootstrap session must work before any guild row exists.
     pub allowed_guild: Option<Snowflake>,
 }
@@ -192,7 +192,7 @@ impl Db {
     // -- API keys ------------------------------------------------------------
 
     /// Mint a key as `(id, plaintext, hint)`. The plaintext is returned exactly
-    /// once, in this response — it is never recoverable from the database again.
+    /// once, in this response - it is never recoverable from the database again.
     pub fn create_api_key(
         &self,
         pepper: &[u8],
@@ -236,7 +236,7 @@ impl Db {
 
     /// Authenticate a bearer key. Returns the row on success.
     ///
-    /// The lookup is by MAC, so verification is a single indexed equality test —
+    /// The lookup is by MAC, so verification is a single indexed equality test -
     /// no per-key scan, and no timing signal about which keys exist.
     pub fn lookup_api_key(&self, pepper: &[u8], candidate: &str) -> Result<Option<ApiKeyRecord>> {
         if !candidate.starts_with(security::KEY_PREFIX) || candidate.len() > 200 {
@@ -417,7 +417,7 @@ impl Db {
     /// Refresh a session's activity clock. Sliding expiry: a session only stretches
     /// once less than half of its lifetime remains, so an actively-used dashboard
     /// never expires mid-task while a stolen idle one still dies on schedule.
-    /// Returns whether the expiry was extended — callers do not need to know.
+    /// Returns whether the expiry was extended - callers do not need to know.
     pub fn touch_session(&self, id: i64, extend_hours: i64) -> Result<bool> {
         let at = now();
         let span = extend_hours.clamp(1, 24 * 14) * 3600;
@@ -453,7 +453,7 @@ impl Db {
         })
     }
 
-    /// Sign the user out everywhere — the right response to "someone had my laptop".
+    /// Sign the user out everywhere - the right response to "someone had my laptop".
     pub fn revoke_all_sessions(&self, user: Snowflake, except: Option<i64>) -> Result<u64> {
         let uid = user.as_i64();
         let at = now();
@@ -522,7 +522,7 @@ impl Db {
         return_to: Option<&str>,
         redirect_uri: Option<&str>,
     ) -> Result<(String, String)> {
-        // 32 bytes, so the value in the address bar is 43 url-safe characters — the length a
+        // 32 bytes, so the value in the address bar is 43 url-safe characters - the length a
         // working authorize link carries. It is a database key and a CSRF token at once, and
         // `state` is the one thing in the URL a third party could otherwise try to guess.
         let state = security::random_urlsafe(32);
@@ -550,7 +550,7 @@ impl Db {
     }
 
     /// Consume a state, returning its PKCE verifier and the `redirect_uri` that was sent
-    /// for it. A state can be spent once — re-delivery (refresh, retry, double callback) is
+    /// for it. A state can be spent once - re-delivery (refresh, retry, double callback) is
     /// a hard failure.
     pub fn consume_oauth_state(&self, state: &str, ip: Option<&str>) -> Result<OAuthState> {
         let state = security::clean(state, 128);
@@ -592,7 +592,7 @@ impl Db {
             if issued.consumed_at.is_some() || issued.expires_at <= at {
                 // Tombstone instead of delete: the DELETE would be rolled back by the
                 // `Err` we are about to return, so "used" can only be recorded by
-                // expiring the row — which also makes the next purge pass collect it.
+                // expiring the row - which also makes the next purge pass collect it.
                 // A stolen-and-redeemed state therefore cannot be tried a third time.
                 conn.execute(
                     "UPDATE oauth_state SET expires_at = 1 WHERE state=?1",
@@ -631,7 +631,7 @@ impl Db {
     }
 
     /// Stamp a session with the guilds its Discord account managed at sign-in. Stored as a
-    /// JSON array of ids, because the alternative — a row per session per guild — would need
+    /// JSON array of ids, because the alternative - a row per session per guild - would need
     /// a table, an index and a purge rule for a list that is read on every request and
     /// written once.
     /// The value has to be readable by both halves of the product: `session_allows_guild`
@@ -709,13 +709,13 @@ impl Db {
     //
     // Not reachable from the product: the dashboard's only door is the Discord login in
     // `aerona-api/src/oauth.rs`, which stamps `sessions.guild_grants` instead. The table and
-    // these functions stay for two reasons — installs out in the world have rows in it, and
+    // these functions stay for two reasons - installs out in the world have rows in it, and
     // removing a column from SQLite means rebuilding the table, which is a migration that can
     // fail halfway on somebody's moderation history. `purge_pairing_codes` still runs hourly so
     // those rows age out on their own.
 
     /// Issue a bootstrap code. Only the digest is stored, so reading the database
-    /// is not enough to mint a session — the plaintext lives in `data/pair-code`,
+    /// is not enough to mint a session - the plaintext lives in `data/pair-code`,
     /// which is already protected by file permissions.
     pub fn issue_pairing_code(
         &self,
@@ -775,7 +775,7 @@ impl Db {
             let (attempts, created_at, expires) = match row {
                 None => {
                     // A burnt code still has a row, so "not found" here means
-                    // "never issued" — indistinguishable to the caller on purpose.
+                    // "never issued" - indistinguishable to the caller on purpose.
                     return Err(Error::Unauthorized);
                 }
                 Some(v) => v,
@@ -857,7 +857,7 @@ impl Db {
 
     /// Audit that never fails the caller: used on read paths (e.g. "someone listed
     /// API keys") where a broken audit write must not mask the result. The failure
-    /// is logged loudly — silently dropping audit rows is how cover-ups start.
+    /// is logged loudly - silently dropping audit rows is how cover-ups start.
     pub fn audit_best_effort(&self, e: AuditEntry) {
         let action = e.action.clone();
         if let Err(err) = self.audit(e) {
@@ -908,7 +908,7 @@ impl Db {
         })
     }
 
-    /// Recompute the whole chain over *every* hashed column — the same field set
+    /// Recompute the whole chain over *every* hashed column - the same field set
     /// `audit` writes. A verifier that reads a subset would accept rows whose
     /// unchecked columns had been edited, which is precisely the tampering this is
     /// meant to catch. `Ok(count)` when intact.
@@ -1108,7 +1108,7 @@ impl Db {
         })
     }
 
-    /// Purge finished rows older than `days`. Pending/failed rows are kept —
+    /// Purge finished rows older than `days`. Pending/failed rows are kept -
     /// a failed action is evidence.
     pub fn purge_outbox(&self, days: i64) -> Result<u64> {
         let cutoff = now() - days.clamp(1, 365) * 86_400;
@@ -1185,7 +1185,7 @@ impl Db {
         })
     }
 
-    /// Remove status rows for guilds the bot no longer reports — called after the
+    /// Remove status rows for guilds the bot no longer reports - called after the
     /// bot's own guild list is known, so a removed guild does not linger as
     /// "stale" forever.
     pub fn prune_bot_status(&self, present: &[Snowflake]) -> Result<u64> {
@@ -1231,7 +1231,7 @@ fn sanitize_scopes(scopes: &[String]) -> Result<Vec<String>> {
 }
 
 fn compact(v: &Value) -> String {
-    // `to_string` (not `to_string_pretty`) — the audit column is compared by hash,
+    // `to_string` (not `to_string_pretty`) - the audit column is compared by hash,
     // and pretty-printing would make a cosmetic change look like tampering.
     serde_json::to_string(v).unwrap_or_else(|_| "{}".into())
 }
@@ -1630,7 +1630,7 @@ mod tests {
             .unwrap();
         assert_eq!(bound.allowed_guild, Some(Snowflake(1234)));
         // The bootstrap guild row is created for a bound session, never for a
-        // guild-less one — there is nothing to name.
+        // guild-less one - there is nothing to name.
         assert_eq!(db.row_count("guilds").unwrap(), 1);
     }
 
@@ -1732,7 +1732,7 @@ mod tests {
             "two spent, one tombstoned, none deleted"
         );
         // A spent state lingers until its own TTL runs out (nothing to gain from
-        // deleting it early — the burn flag is the guard), and then one pass sweeps both.
+        // deleting it early - the burn flag is the guard), and then one pass sweeps both.
         assert_eq!(
             db.purge_oauth_state().unwrap(),
             1,
@@ -1839,7 +1839,7 @@ mod tests {
         // regenerated with the same value) must not resurrect a burnt row.
         db.issue_pairing_code(&p, code, 600, "").unwrap();
         // Re-issuing the same code resets its TTL and attempt counter but never the
-        // burn flag, and the caller learns only "unknown code" — whether a code was
+        // burn flag, and the caller learns only "unknown code" - whether a code was
         // already spent is not information worth leaking.
         assert!(matches!(
             db.redeem_pairing_code(
@@ -2000,7 +2000,7 @@ mod tests {
             "error text is capped"
         );
 
-        // Retry until attempts reach 3 — then it is parked in `failed` for a human
+        // Retry until attempts reach 3 - then it is parked in `failed` for a human
         // instead of spinning against a permanently failing Discord call.
         for expected in ["pending", "failed"] {
             let items = db.claim_actions(5).unwrap();
@@ -2127,7 +2127,7 @@ pub struct OAuthState {
     pub redirect_uri: Option<String>,
     /// Where the browser wanted to go before it was bounced to Discord. `None` is the
     /// common case and means the dashboard's own root; a value here is already sanitised
-    /// (`crate::oauth::safe_next`) — it is what a sign-in that started on
+    /// (`crate::oauth::safe_next`) - it is what a sign-in that started on
     /// `/guild/123/tickets/` lands back on.
     pub return_to: Option<String>,
 }

@@ -9,7 +9,7 @@ const container = document.getElementById('root')
 if (!container) throw new Error('missing #root')
 
 /**
- * The prerendered markup is real content, so hydrate it — but inside a transition, so
+ * The prerendered markup is real content, so hydrate it - but inside a transition, so
  * a slow hydration of a large table never blocks the first paint the browser already
  * made. If the markup was the empty placeholder (dev server, or a route the
  * prerenderer does not know), mount fresh instead.

@@ -20,7 +20,10 @@ use crate::time;
 
 /// Kinds of gateway report the dashboard may read. Adding one is a bot-side write plus a
 /// renderer; nothing else has to know it exists.
-pub const REPORT_KINDS: [&str; 3] = ["commands", "picker", "identity"];
+/// One JSON blob per guild per kind, written by the gateway worker and read by the panel.
+/// `messages` is in the list because the picker that chooses which message a sticky reposts needs
+/// text the bot saw, and the panel must not invent its own window for how far back that goes.
+pub const REPORT_KINDS: [&str; 4] = ["commands", "picker", "identity", "messages"];
 
 fn report_key(guild: Snowflake, kind: &str) -> String {
     format!("report:{guild}:{kind}")
@@ -135,7 +138,7 @@ impl Db {
         Ok(())
     }
 
-    /// Current stored document, verbatim — used by the dashboard to show a diff
+    /// Current stored document, verbatim - used by the dashboard to show a diff
     /// and by `DELETE` handlers to undo a guild's setup.
     pub fn raw_settings(&self, guild: Snowflake, feature: Feature) -> Result<Option<Value>> {
         let key = feature.storage_key();
@@ -168,7 +171,7 @@ impl Db {
         })
     }
 
-    /// `(guild, config_epoch)` pairs — the gateway worker compares against its
+    /// `(guild, config_epoch)` pairs - the gateway worker compares against its
     /// cached value and reloads only what changed. O(guilds), one indexed query.
     /// Bot-side sync of one guild: name/icon/counts plus `guild_state`. The API
     /// reads exactly these rows to decide what the dashboard may show, so a
@@ -444,7 +447,7 @@ impl Db {
     /// One JSON blob the gateway worker writes for the dashboard to render, per guild and
     /// kind (`commands`, `picker`, `identity`). It is a *report*, never a source of truth:
     /// Discord owns commands, channels and profiles, and the row only says what the worker
-    /// last saw. That is also why `reportedAt` travels inside the payload — the dashboard
+    /// last saw. That is also why `reportedAt` travels inside the payload - the dashboard
     /// has to be able to say "as of 4 minutes ago" instead of implying it read Discord.
     pub fn guild_report(&self, guild: Snowflake, kind: &str) -> Result<Option<Value>> {
         let key = report_key(guild, kind);
@@ -654,7 +657,7 @@ mod tests {
 
         let mut ai = AiConfig::default();
         // Deliberate field assignment rather than struct-literal syntax: this is the
-        // *partial patch* semantics under test — everything else keeps its default.
+        // *partial patch* semantics under test - everything else keeps its default.
         ai.enabled = true;
         ai.min_severity = crate::models::Severity::High;
         ai.categories = vec!["profanity".into(), "spam".into()];

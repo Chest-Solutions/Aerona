@@ -1,7 +1,7 @@
 /**
  * The text filter: your own rules first, the model second.
  *
- * Custom rules are matched in the same pass as everything else in this file — locally, free,
+ * Custom rules are matched in the same pass as everything else in this file - locally, free,
  * before anything is sent to a provider. The model only runs for what the guild asks it to
  * look at, and the box at the bottom calls the very function the gate calls, so a preview here
  * is the real verdict rather than an approximation of it.
@@ -124,7 +124,6 @@ export default function Filter() {
         feature="ai_filter"
         title="Detection"
         icon={ScanEye}
-        description="Rules run first. The model only sees what this server asks it to."
         fields={[
           { kind: 'switch', key: 'enabled', label: 'Send messages for classification', hint: 'Needs a provider key on this install. Rules keep working without it.' },
           {
@@ -156,7 +155,7 @@ export default function Filter() {
           { kind: 'int', key: 'cache_seconds', label: 'Remember a verdict for', hint: '0 checks every time.', min: 0, max: 3600, suffix: 'secs' },
           { kind: 'switch', key: 'apply_to_edits', label: 'Re-check edited messages' },
           { kind: 'switch', key: 'apply_to_embeds', label: 'Count link embeds as content' },
-          { kind: 'switch', key: 'apply_to_bots', label: 'Check other bots', hint: 'Off means a bot posting abuse slips through — your call.' },
+          { kind: 'switch', key: 'apply_to_bots', label: 'Check other bots', hint: 'Off means a bot posting abuse slips through - your call.' },
           {
             kind: 'enum',
             key: 'on_api_error',
@@ -186,7 +185,7 @@ export default function Filter() {
           { kind: 'switch', key: 'ban_on_strikes', label: 'Ban instead of timing out' },
           { kind: 'ids', key: 'whitelist_role_ids', label: 'Never check these roles', source: 'roles', multiple: true },
           { kind: 'ids', key: 'whitelist_channel_ids', label: 'Never check these channels', source: 'channels', multiple: true },
-          { kind: 'lines', key: 'whitelist_user_ids', label: 'Never check these members', hint: 'One user id per line — Discord shows it when you copy an id.' },
+          { kind: 'lines', key: 'whitelist_user_ids', label: 'Never check these members', hint: 'One user id per line - Discord shows it when you copy an id.' },
         ]}
       />
     </div>
@@ -235,7 +234,7 @@ function TestBox({ guild }: { guild: string }) {
           <dl className="grid gap-1 text-sm">
             <Row k="Why" v={out.verdict.reason || 'nothing matched'} />
             <Row k="Severity" v={out.verdict.severity} />
-            <Row k="Classes" v={out.verdict.categories.length ? out.verdict.categories.join(', ') : '—'} />
+            <Row k="Classes" v={out.verdict.categories.length ? out.verdict.categories.join(', ') : '-'} />
             <Row k="Provider" v={out.provider.called ? 'asked' : (out.provider.note ?? 'not needed')} />
             <Row k="Rules compared" v={String(out.rulesCompared)} />
           </dl>

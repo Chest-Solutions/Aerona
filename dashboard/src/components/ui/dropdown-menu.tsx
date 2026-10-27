@@ -60,12 +60,12 @@ function DropdownMenuLabel({
   inset?: boolean
 }) {
   // A plain element, on purpose, and this is the line that was a production crash: Base UI has no
-  // `Menu.Label`, and the wrapper used to render `Menu.GroupLabel` instead — which reads
+  // `Menu.Label`, and the wrapper used to render `Menu.GroupLabel` instead - which reads
   // `MenuGroupContext` and *throws* (`MenuGroupContext is missing`, reported minified as
   // `Base UI error #31`) unless a `Menu.Group` or `Menu.RadioGroup` is above it. A caption at the
   // top of a menu has no group, so the guild switcher died the moment it was opened, and the page
-  // with it. The primitive is also `aria-hidden` — its job is to be a group's `aria-labelledby`
-  // target — so even when it does not throw, it is the wrong element for a visible caption.
+  // with it. The primitive is also `aria-hidden` - its job is to be a group's `aria-labelledby`
+  // target - so even when it does not throw, it is the wrong element for a visible caption.
   // `DropdownMenuGroupLabel` below is the one to use inside `DropdownMenuGroup`.
   return (
     <div

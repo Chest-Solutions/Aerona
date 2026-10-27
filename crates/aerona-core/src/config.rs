@@ -2,7 +2,7 @@
 //!
 //! Contract with the operator:
 //!
-//! * Exactly two variables are **required** — `AERONA_TOKEN` and `AERONA_PORT`.
+//! * Exactly two variables are **required** - `AERONA_TOKEN` and `AERONA_PORT`.
 //!   Everything else has a safe default. `AERONA_BOT=off` drops the token
 //!   requirement: the dashboard then runs on its own, which is what a first boot on
 //!   a fresh box looks like (site up, bot added later).
@@ -11,8 +11,8 @@
 //! * Secrets are parsed into [`Secret`] and never included in an error message.
 //!   A misconfiguration error says *which* variable is wrong, never what its
 //!   value was.
-//! * Parsing is a pure function over a `HashMap`, so the whole policy — including
-//!   every rejection — is unit-testable without touching the filesystem.
+//! * Parsing is a pure function over a `HashMap`, so the whole policy - including
+//!   every rejection - is unit-testable without touching the filesystem.
 
 use std::collections::HashMap;
 use std::fmt::Write as _;
@@ -39,7 +39,7 @@ pub struct Config {
     /// self-hosted install exposes one socket. Relative paths resolve against the
     /// process working directory, which `main.py` sets to the repo root.
     pub static_dir: PathBuf,
-    /// Canonical origin, e.g. `https://aerona.example` — used for OAuth redirect
+    /// Canonical origin, e.g. `https://aerona.example` - used for OAuth redirect
     /// and to decide whether `Secure` cookies are safe to set.
     pub base_url: String,
     /// Whether `base_url` came from `AERONA_BASE_URL` or from the localhost default.
@@ -52,8 +52,8 @@ pub struct Config {
     /// The `redirect_uri` to send Discord, verbatim, from `AERONA_OAUTH_REDIRECT_URI`.
     ///
     /// This exists because Discord matches that value against the application's
-    /// OAuth2 → Redirects list **character for character** — scheme, host, port, path,
-    /// trailing slash, query — and there is no prefix or wildcard matching. Deriving it
+    /// OAuth2 → Redirects list **character for character** - scheme, host, port, path,
+    /// trailing slash, query - and there is no prefix or wildcard matching. Deriving it
     /// from the public origin is right almost always, and hopeless in the cases that are
     /// worth naming: a portal entry registered as `http://localhost:25154/…` while the
     /// browser dials the box by IP; a TLS terminator in front that changes the scheme; a
@@ -106,7 +106,7 @@ impl Config {
     /// otherwise from the bot token, so an install always has *some* stable secret.
     ///
     /// Rotating it (changing `AERONA_MASTER_KEY`) invalidates every session and API
-    /// key at once. That is the intended behaviour of an install-wide pepper — it is
+    /// key at once. That is the intended behaviour of an install-wide pepper - it is
     /// the "log everyone out" button that needs no database access.
     pub fn pepper(&self) -> [u8; 32] {
         let material = self
@@ -223,7 +223,7 @@ impl Config {
         let mut out = Vec::new();
         if shown.ends_with('/') {
             out.push(
-                "this value ends with a slash, so the portal entry must end with one too — Discord's \
+                "this value ends with a slash, so the portal entry must end with one too - Discord's \
                  Add Redirect box adds one when you press Enter without checking"
                     .into(),
             );
@@ -247,7 +247,7 @@ impl Config {
     }
 
     /// The `redirect_uri` a login would send when there is no request to learn an origin
-    /// from — which is the situation `check` is in. `Some` only for the two
+    /// from - which is the situation `check` is in. `Some` only for the two
     /// operator-authored sources, so the string printed by `check` is always one the
     /// operator wrote, and never a guess that happens to be right today.
     pub fn redirect_uri_configured(&self) -> Option<String> {
@@ -267,7 +267,7 @@ impl Config {
         } else if self.base_url_explicit {
             "derived from AERONA_BASE_URL"
         } else {
-            "not configured — derived per request from the browser's own origin"
+            "not configured - derived per request from the browser's own origin"
         }
     }
 
@@ -275,7 +275,7 @@ impl Config {
     ///
     /// `base_url` is the operator's answer, so once it was configured it always wins:
     /// reflecting `Host` on an install that has chosen a name would let any client steer
-    /// an OAuth `redirect_uri` — and therefore the authorization code — to a host of its
+    /// an OAuth `redirect_uri` - and therefore the authorization code - to a host of its
     /// own. Unconfigured is the game-panel case, and here the internal default is actively
     /// wrong: `http://localhost:PORT` is a *different origin* from the address in the bar,
     /// so minting an absolute link from it sends the browser to `localhost` after a login
@@ -302,8 +302,8 @@ impl Config {
 
     /// Whether a `Host` value can only ever point back at this machine: an IP literal,
     /// `localhost`, or `*.localhost`. Both same-origin fallback and origin reflection use
-    /// this, because both are safe for exactly the same reason — a browser-typed IP cannot
-    /// be re-pointed by DNS, while a name in someone else's zone can (rebinding) — and
+    /// this, because both are safe for exactly the same reason - a browser-typed IP cannot
+    /// be re-pointed by DNS, while a name in someone else's zone can (rebinding) - and
     /// `*.localhost` is reserved for loopback by RFC 6761. An `@` means userinfo, not a
     /// host, and is refused before anything is parsed.
     fn host_is_self(host: &str) -> bool {
@@ -336,7 +336,7 @@ impl Config {
     /// `Secure` on the session cookie, and nothing but an `https` origin earns it.
     ///
     /// A plain-http install therefore gets a plain cookie, and `main.py` names the exposure
-    /// in its startup notes rather than refusing to boot — a game panel hands out one raw TCP
+    /// in its startup notes rather than refusing to boot - a game panel hands out one raw TCP
     /// port with nothing in front of it, which is the ordinary shape of a deployment here.
     pub fn cookies_secure(&self) -> bool {
         self.base_url.starts_with("https://")
@@ -355,15 +355,15 @@ impl Config {
     /// The same-host fallback, and the only reason a panel install works at all.
     ///
     /// `AERONA_BASE_URL` exists so the browser's `Origin` can be checked against a
-    /// name the operator chose. On a game panel nobody sets it — the "domain" is an IP
+    /// name the operator chose. On a game panel nobody sets it - the "domain" is an IP
     /// with a port, and the default `http://localhost:PORT` rejects every real
     /// browser, so logging in would 403 forever. So: when the origin was *never*
     /// configured, accept an `Origin` that equals this request's own `Host`.
     ///
     /// That is not a relaxation of the CSRF rule, it is the same rule read from the
     /// other side: an attacker's page cannot make a browser send its own host in
-    /// `Host`. The one thing it cannot tell apart is DNS rebinding — a hostile name
-    /// that resolves to your box — which is why the fallback is refused for any host
+    /// `Host`. The one thing it cannot tell apart is DNS rebinding - a hostile name
+    /// that resolves to your box - which is why the fallback is refused for any host
     /// that is not an IP literal or `localhost`. Deploy on a domain, set
     /// `AERONA_BASE_URL`, and the exact-match path above is the only one used.
     pub fn allows_same_host(&self, origin: &str, host: &str) -> bool {
@@ -423,7 +423,7 @@ impl Config {
             }
             None if bot_enabled => {
                 return Err(Error::Config(
-                    "AERONA_TOKEN is missing — set your Discord bot token in .env, \
+                    "AERONA_TOKEN is missing - set your Discord bot token in .env, \
                      or set AERONA_BOT=off to run the dashboard without a worker"
                         .into(),
                 ))
@@ -434,13 +434,13 @@ impl Config {
         };
 
         let port: u16 = get("AERONA_PORT")
-            .ok_or_else(|| Error::Config("AERONA_PORT is missing — the dashboard port".into()))?
+            .ok_or_else(|| Error::Config("AERONA_PORT is missing - the dashboard port".into()))?
             .parse()
             .map_err(|_| {
                 Error::Config("AERONA_PORT must be an integer between 1 and 65535".into())
             })?;
         if port == 0 {
-            // `0` means "let the OS pick" for bind() — it would hand the dashboard
+            // `0` means "let the OS pick" for bind() - it would hand the dashboard
             // a random port and every OAuth/callback URL would silently break.
             return Err(Error::Config(
                 "AERONA_PORT must be between 1 and 65535".into(),
@@ -494,19 +494,19 @@ impl Config {
                 } else if !v.starts_with("http://") && !v.starts_with("https://") {
                     // A relative value is the intuitive thing to write and the one thing
                     // Discord can never match, so it is refused at load rather than at the
-                    // first login attempt — twenty minutes later, on someone else's screen.
+                    // first login attempt - twenty minutes later, on someone else's screen.
                     return Err(Error::Config(
                         "AERONA_OAUTH_REDIRECT_URI must be an absolute http(s) URL, e.g. http://127.0.0.1:25154/auth/callback"
                             .into(),
                     ));
                 } else if v.chars().any(char::is_whitespace) {
                     return Err(Error::Config(
-                        "AERONA_OAUTH_REDIRECT_URI contains whitespace — paste the URL alone, Discord compares it character for character"
+                        "AERONA_OAUTH_REDIRECT_URI contains whitespace - paste the URL alone, Discord compares it character for character"
                             .into(),
                     ));
                 } else if v.contains('#') {
                     return Err(Error::Config(
-                        "AERONA_OAUTH_REDIRECT_URI must not contain a fragment (#…) — an OAuth callback is a server endpoint and the fragment never reaches it"
+                        "AERONA_OAUTH_REDIRECT_URI must not contain a fragment (#…) - an OAuth callback is a server endpoint and the fragment never reaches it"
                             .into(),
                     ));
                 } else {
@@ -569,7 +569,7 @@ impl Config {
             rate_rps,
             rate_burst,
             log_level: get("AERONA_LOG_LEVEL").unwrap_or_else(|| "info".into()),
-            content_intent: get("AERONA_CONTENT_INTENT").as_deref() == Some("true"),
+            content_intent: parse_yes_no(env, "AERONA_CONTENT_INTENT", false)?,
             bot_enabled,
             cors_origins: get("AERONA_CORS_ORIGINS")
                 .map(|v| {
@@ -589,7 +589,7 @@ impl Config {
         })
     }
 
-    /// Human summary for `main.py check` — secrets redacted by construction.
+    /// Human summary for `main.py check` - secrets redacted by construction.
     pub fn summary(&self) -> String {
         let mut s = String::new();
         let _ = writeln!(s, "port            {}", self.port);
@@ -626,7 +626,7 @@ impl Config {
             "sightengine     {}",
             match &self.sightengine {
                 Some((user, _)) => format!("configured (user {user})"),
-                None => "not configured — AI text filter disabled".into(),
+                None => "not configured - AI text filter disabled".into(),
             }
         );
         let _ = writeln!(
@@ -635,7 +635,7 @@ impl Config {
             if self.oauth_configured() {
                 "configured"
             } else {
-                "not configured — nobody can sign in to the dashboard"
+                "not configured - nobody can sign in to the dashboard"
             }
         );
         let _ = writeln!(s, "secure cookies  {}", self.cookies_secure());
@@ -680,7 +680,31 @@ fn parse_f64(env: &HashMap<String, String>, key: &str, default: f64) -> Result<f
     }
 }
 
-/// Structural check on a bot token: `base64(userId).timestamp.hmac` — three dot
+/// A yes-or-no setting, in the words an operator actually types into a `.env`: `true`, `1`, `yes`
+/// and `on` mean yes; `false`, `0`, `no`, `off` and unset mean no. Anything else is an error rather
+/// than a silent no, because this class of switch decides what the bot asks Discord for, and a typo
+/// that quietly turns a feature off is the kind of bug that ends up being reported as "it doesn't
+/// log the message". Note that `AERONA_TRUSTED_PROXY` is *not* parsed here, on purpose: a security
+/// posture whose name is a question ("should I believe this header?") should only ever change when
+/// somebody writes the word for it.
+fn parse_yes_no(env: &HashMap<String, String>, key: &str, default: bool) -> Result<bool> {
+    match env
+        .get(key)
+        .map(|v| v.trim().to_ascii_lowercase())
+        .filter(|v| !v.is_empty())
+    {
+        Some(v) => match v.as_str() {
+            "1" | "true" | "yes" | "on" | "y" => Ok(true),
+            "0" | "false" | "no" | "off" | "n" => Ok(false),
+            other => Err(Error::Config(format!(
+                "{key} is {other:?}, which is neither yes nor no - write true or false"
+            ))),
+        },
+        None => Ok(default),
+    }
+}
+
+/// Structural check on a bot token: `base64(userId).timestamp.hmac` - three dot
 /// separated parts, sane length. We deliberately do *not* validate the HMAC:
 /// that would require the app secret, and Discord's `whoami` at boot is the real
 /// test. But we do refuse obviously wrong input so a copy-pasted invite link
@@ -689,7 +713,7 @@ fn validate_token_shape(token: &str) -> Result<()> {
     if token.len() < 40 || token.len() > 512 {
         // Checked first: a truncated paste is the most common mistake by far.
         return Err(Error::Config(
-            "AERONA_TOKEN has an unexpected length — check for a truncated copy-paste".into(),
+            "AERONA_TOKEN has an unexpected length - check for a truncated copy-paste".into(),
         ));
     }
     let parts: Vec<&str> = token.split('.').collect();
@@ -701,7 +725,7 @@ fn validate_token_shape(token: &str) -> Result<()> {
     }
     if token.contains("://") || token.contains(' ') {
         return Err(Error::Config(
-            "AERONA_TOKEN contains a URL or spaces — paste only the token".into(),
+            "AERONA_TOKEN contains a URL or spaces - paste only the token".into(),
         ));
     }
     if parts[0]
@@ -709,7 +733,7 @@ fn validate_token_shape(token: &str) -> Result<()> {
         .any(|b| !(b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
     {
         return Err(Error::Config(
-            "AERONA_TOKEN's first segment is not base64url — check for stray characters".into(),
+            "AERONA_TOKEN's first segment is not base64url - check for stray characters".into(),
         ));
     }
     Ok(())
@@ -781,8 +805,8 @@ fn dotenv_candidates(root: &Path) -> Vec<PathBuf> {
 
 /// Peel a dotenv value.
 ///
-/// Single quotes are literal, double quotes carry `\n` / `\t` / `\"` escapes, and — the
-/// part that used to be wrong — a comment may follow the closing quote. Somebody who
+/// Single quotes are literal, double quotes carry `\n` / `\t` / `\"` escapes, and - the
+/// part that used to be wrong - a comment may follow the closing quote. Somebody who
 /// writes `AERONA_DB='data/x.db' # moved` is following the shell manual, and parsing that
 /// as a path containing a quote and a comment would put a nonsense file on disk.
 fn unquote(value: &str) -> String {
@@ -790,7 +814,7 @@ fn unquote(value: &str) -> String {
         return value.to_string();
     };
     if quote != b'"' && quote != b'\'' {
-        // Bare value: a comment starts at " #", which is what dotenv defines — an
+        // Bare value: a comment starts at " #", which is what dotenv defines - an
         // unquoted '#' inside a token (a password, a path) stays part of it.
         return match value.find(" #") {
             Some(i) => value[..i].trim_end().to_string(),
@@ -816,7 +840,7 @@ fn unquote(value: &str) -> String {
 
 /// Minimal dotenv: `KEY=value`, `export KEY=...`, `#` comments, single/double
 /// quotes, and `\n` escapes inside double quotes. Anything malformed is
-/// ignored rather than fatal — an unreadable line in someone's shell scratch
+/// ignored rather than fatal - an unreadable line in someone's shell scratch
 /// file should not stop a bot from starting.
 pub fn parse_dotenv(text: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
@@ -841,7 +865,7 @@ pub fn parse_dotenv(text: &str) -> Vec<(String, String)> {
 
 /// Template written next to the repo so a fresh clone knows what to fill in.
 pub const DOTENV_TEMPLATE: &str = "\
-# Aerona — required
+# Aerona - required
 AERONA_TOKEN=put-your-discord-bot-token-here
 AERONA_PORT=8080
 
@@ -853,7 +877,7 @@ AERONA_BOT=
 # Get both from https://dashboard.sightengine.com/account
 SIGHTENGINE_TOKEN=
 
-# Aerona — optional
+# Aerona - optional
 # AERONA_BASE_URL is the exact origin your browser types, port included, no
 # trailing slash. Left empty, the API accepts the host you actually reach it on
 # (an IP with a port, `localhost`, a `*.localhost` name), which is what a game panel
@@ -1058,7 +1082,7 @@ mod tests {
         let c = Config::parse_env(&e, Path::new("/x"), false).unwrap();
         assert!(c.cookies_secure());
         assert_eq!(c.base_url, "https://bot.aerona.dev/");
-        // The operator named an origin, so no request `Host` may steer a redirect —
+        // The operator named an origin, so no request `Host` may steer a redirect -
         // that is the Host-header injection this function used to be open to.
         let origin = c.request_origin("evil.example:8080", "http").unwrap();
         assert_eq!(origin, "https://bot.aerona.dev");
@@ -1162,6 +1186,49 @@ BAD KEY=x
             env.insert(k, v);
         }
         assert!(Config::parse_env(&env, Path::new("/x"), true).is_ok());
+    }
+
+    /// Message content is still off by default - the privileged-intent switch in the developer
+    /// portal has to be ticked by a human, and requesting the intent without it is a gateway that
+    /// refuses to connect - but the word for "on" is allowed to be any of the words people use.
+    #[test]
+    fn content_intent_is_off_until_said_otherwise_in_any_spelling() {
+        for yes in ["true", "TRUE", "1", "yes", "on"] {
+            let mut e = base();
+            e.insert("AERONA_CONTENT_INTENT".into(), yes.into());
+            assert!(
+                Config::parse_env(&e, Path::new("/x"), true)
+                    .unwrap()
+                    .content_intent,
+                "{yes:?} means yes"
+            );
+        }
+        for no in ["false", "0", "no", "off", ""] {
+            let mut e = base();
+            e.insert("AERONA_CONTENT_INTENT".into(), no.into());
+            assert!(
+                !Config::parse_env(&e, Path::new("/x"), true)
+                    .unwrap()
+                    .content_intent,
+                "{no:?} means no"
+            );
+        }
+        let mut e = base();
+        assert!(
+            !Config::parse_env(&e, Path::new("/x"), true)
+                .unwrap()
+                .content_intent,
+            "unset means no: it is the privileged one"
+        );
+        // A value that is neither is refused at boot instead of being read as a no: an install
+        // whose delete logs quietly lost their text is otherwise undiagnosable.
+        e.insert("AERONA_CONTENT_INTENT".into(), "maybe".into());
+        let err =
+            Config::parse_env(&e, Path::new("/x"), true).expect_err("a non-answer is an error");
+        assert!(
+            err.to_string().contains("AERONA_CONTENT_INTENT"),
+            "the message names the switch: {err}"
+        );
     }
 
     #[test]
@@ -1360,7 +1427,7 @@ BAD KEY=x
 
     /// The panel fix: an install that was never given a name must build its absolute
     /// URLs from the address the browser actually used, or a login bounces to
-    /// `localhost` — the origin *this* process is listening on, but not the one in the
+    /// `localhost` - the origin *this* process is listening on, but not the one in the
     /// address bar. And it must refuse to reflect a name it was not given: that is the
     /// rebinding hole, and here it would also hand the OAuth code to whoever owns the name.
     /// The property the status endpoint depends on: the shape notes describe the value
@@ -1452,7 +1519,7 @@ BAD KEY=x
         // literal and it is what a browser on the box uses.
         assert!(c.allows_same_host("http://aerona.localhost:8080", "aerona.localhost:8080"));
 
-        // Naming the origin turns the fallback off completely — that is the switch.
+        // Naming the origin turns the fallback off completely - that is the switch.
         let mut e = base();
         e.insert("AERONA_BASE_URL".into(), "http://127.0.0.1:8080".into());
         let named = Config::parse_env(&e, Path::new("/x"), false).unwrap();

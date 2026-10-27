@@ -34,7 +34,7 @@ pub fn routes() -> Router<AppState> {
         .route("/housekeeping", post(housekeeping))
 }
 
-/// Who the dashboard is talking as — and the only place the CSRF value is handed
+/// Who the dashboard is talking as - and the only place the CSRF value is handed
 /// back after login, so the SPA can re-derive its headers after a reload.
 async fn me(State(state): State<AppState>, a: Authed) -> std::result::Result<Response, Invalid> {
     let value = match &a.principal {
@@ -214,7 +214,7 @@ async fn create_key(
         "key": secret,
         "hint": hint,
         "scopes": scopes,
-        "warning": "store it now — this response is the only time the full key exists",
+        "warning": "store it now - this response is the only time the full key exists",
     })))
 }
 
@@ -391,7 +391,7 @@ async fn stats_series(
     })))
 }
 
-/// `GET /outbox/{id}` — how a caller learns whether a queued action ran. Readable
+/// `GET /outbox/{id}` - how a caller learns whether a queued action ran. Readable
 /// by any principal that could have queued it; the guild check keeps it from being a
 /// way to watch another server's moderation.
 async fn outbox_status(

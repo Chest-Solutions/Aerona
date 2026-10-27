@@ -1,7 +1,7 @@
 /**
  * Who and what can drive this install: browser sessions and API keys.
  *
- * Keys are shown once and never again — the row keeps a hint and a hash, not a secret. That
+ * Keys are shown once and never again - the row keeps a hint and a hash, not a secret. That
  * is the whole design, and it is why revoking is cheap: a key you cannot read is a key nobody
  * else can read either.
  */
@@ -160,7 +160,7 @@ function Keys() {
       <AnimatePresence>
         {secret ? (
           <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="rounded-xl border border-dashed p-3">
-            <p className="text-sm font-medium">Copy it now — this is the only time it is shown.</p>
+            <p className="text-sm font-medium">Copy it now - this is the only time it is shown.</p>
             <code className="mt-2 block select-all overflow-x-auto rounded-lg bg-muted/50 px-3 py-2 font-mono text-xs">{secret}</code>
             <div className="mt-2 flex gap-2">
               <Button size="sm" variant="outline" onClick={() => void navigator.clipboard.writeText(secret).then(() => toast.success('Copied'))}>
@@ -274,7 +274,7 @@ function Sessions() {
               <TableCell className="text-muted-foreground" title={s.guild ?? ''}>
                 {s.guild ? shortId(s.guild) : 'all'}
               </TableCell>
-              <TableCell className="text-muted-foreground">{s.ip ?? '—'}</TableCell>
+              <TableCell className="text-muted-foreground">{s.ip ?? '-'}</TableCell>
               <TableCell className="text-muted-foreground">{ago(s.lastSeenAt)}</TableCell>
               <TableCell className="text-muted-foreground">{new Date(s.expiresAt * 1000).toLocaleString()}</TableCell>
               <TableCell className="text-end">

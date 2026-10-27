@@ -5,7 +5,7 @@
  *
  * It is a *render*, not a grep, which is the point: the vendored registry files are plain TSX that
  * type-checks happily while throwing at runtime, and `renderToStaticMarkup` runs the component
- * bodies — the same function a browser would call — without needing a DOM. Where the server cannot
+ * bodies - the same function a browser would call - without needing a DOM. Where the server cannot
  * reach (a portal that waits for `document`), the fixture says so out loud rather than counting the
  * case as a pass, so the run never quietly shrinks to nothing.
  */
@@ -16,8 +16,8 @@ import { mkdirSync } from 'node:fs'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '..')
-// Under `node_modules/.cache`, and nowhere else. The bundle keeps `react-dom` external — that is how
-// vite's SSR builds work — so it has to be placed where `node_modules` resolves, and `/tmp` is not:
+// Under `node_modules/.cache`, and nowhere else. The bundle keeps `react-dom` external - that is how
+// vite's SSR builds work - so it has to be placed where `node_modules` resolves, and `/tmp` is not:
 // the first version wrote there and node answered `Cannot find package 'react-dom'`. `node_modules` is
 // excluded from the release archive by rule and is disposable by `npm ci`, so an audit cannot change
 // what a release contains, which is the property that matters here.
@@ -29,7 +29,7 @@ await build({
   logLevel: 'warn',
   // The fixture is a script, not a shipped page: the project config supplies the aliases the vendored
   // components import (`cn`, `@/…`), and `build.ssr` is how `npm run build:ssr` names its entry, so
-  // this is the same path the prerenderer takes — with its own output directory.
+  // this is the same path the prerenderer takes - with its own output directory.
   build: {
     ssr: path.join(here, 'overlay-fixture.tsx'),
     outDir: out,
@@ -51,7 +51,7 @@ if (failures.length) {
   process.exit(1)
 }
 if (asserted === 0) {
-  console.error('\n  nothing was asserted — the fixture proves nothing; fix it rather than shipping the gate\n')
+  console.error('\n  nothing was asserted - the fixture proves nothing; fix it rather than shipping the gate\n')
   process.exit(1)
 }
 // Deliberately a note, not a pass: a portal's contents need effects, which a server render does not

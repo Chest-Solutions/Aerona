@@ -1,4 +1,4 @@
-//! `aerona-api` — the HTTP surface: `/api/v1/*` and the built dashboard, on one port.
+//! `aerona-api` - the HTTP surface: `/api/v1/*` and the built dashboard, on one port.
 //!
 //! This is the API-alone entry point. The thing you normally run is `aerona`, which
 //! serves this *and* holds the Discord connection in one process; `main.py` prefers
@@ -74,7 +74,7 @@ async fn run(root: &std::path::Path, dev: bool, args: &[String]) -> Result<(), E
 }
 
 /// Ctrl-C plus SIGTERM (systemd, docker, `main.py`). Then a short drain so a PUT in
-/// flight is not cut off mid-write — axum keeps serving until this future resolves.
+/// flight is not cut off mid-write - axum keeps serving until this future resolves.
 async fn drain() {
     match signal().await {
         Ok(name) => tracing::info!("{name}: draining for {DRAIN_SECS}s"),
@@ -108,7 +108,7 @@ async fn signal() -> Result<&'static str, std::io::Error> {
 fn note_pepper_secret(created: Option<PathBuf>) {
     let Some(path) = created else { return };
     tracing::warn!(
-        "no bot token and no AERONA_MASTER_KEY: wrote a persistent pepper to {} — \
+        "no bot token and no AERONA_MASTER_KEY: wrote a persistent pepper to {} - \
          keep it with your database backup, sessions and API keys are keyed with it",
         path.display()
     );

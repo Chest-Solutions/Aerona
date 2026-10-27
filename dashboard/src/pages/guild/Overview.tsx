@@ -2,7 +2,7 @@
  * The guild's front page: what the bot is doing, and what it has recently done.
  *
  * Numbers only. Anything you would configure lives on the page for it, linked from the
- * tiles — an overview that duplicates three forms is three ways to be out of date.
+ * tiles - an overview that duplicates three forms is three ways to be out of date.
  */
 import { motion } from 'framer-motion'
 import { Activity, RefreshCw, LifeBuoy, Lock, Pin } from 'lucide-react'
@@ -34,7 +34,6 @@ export default function Overview() {
     <div className="grid gap-5">
       <PageHeader
         title="Overview"
-        hint="Counts the bot keeps, not counts Discord rounds."
         actions={
           <>
             <Button variant="outline" size="sm" onClick={reload} disabled={loading}>
@@ -49,7 +48,7 @@ export default function Overview() {
         {tiles.map((t, i) => (
           <motion.div key={t.label} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04, duration: 0.26 }}>
             <Link href={guildPath(id, t.href)} className="block">
-              <Stat label={t.label} value={loading ? '—' : t.value} hint={t.hint} />
+              <Stat label={t.label} value={loading ? '-' : t.value} hint={t.hint} />
             </Link>
           </motion.div>
         ))}
@@ -135,4 +134,4 @@ function Toggle({ label, on, note, href }: { label: string; on: boolean; note: s
 }
 
 const num = (v: unknown): number => (typeof v === 'number' ? v : Number(v ?? 0) || 0)
-const fmt = (v: unknown): string => (typeof v === 'number' ? String(Math.round(v)) : String(v ?? '—'))
+const fmt = (v: unknown): string => (typeof v === 'number' ? String(Math.round(v)) : String(v ?? '-'))

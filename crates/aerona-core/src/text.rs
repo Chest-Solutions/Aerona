@@ -1,7 +1,7 @@
 //! The AI text-moderation engine: custom rules, severity maths and the final
 //! decision.
 //!
-//! This module is deliberately **pure** — no network, no database, no Discord.
+//! This module is deliberately **pure** - no network, no database, no Discord.
 //! Both `aerona-bot` (which must never slow down a message) and `aerona-api`
 //! (which powers the dashboard's "test a sentence" box) call the same function,
 //! so what you test in the dashboard is provably what the bot does in production.
@@ -74,7 +74,7 @@ pub enum HitSource {
 /// Outcome of running a message through the engine.
 #[derive(Debug, Clone)]
 pub enum Outcome {
-    /// Nothing to check (too short, whitelisted, feature off…) — never logged.
+    /// Nothing to check (too short, whitelisted, feature off…) - never logged.
     Skipped(&'static str),
     /// Checked and clean.
     Clean,
@@ -352,7 +352,7 @@ pub fn scan_custom(text: &str, rules: &[CompiledRule]) -> (bool, Vec<TextHit>) {
     (whitelisted, hits)
 }
 
-/// `**ee you` — mask a violation before it is stored or echoed.
+/// `**ee you` - mask a violation before it is stored or echoed.
 pub fn redact(text: &str, hits: &[TextHit]) -> String {
     let mut out = String::with_capacity(text.len());
     let mut cursor = 0usize;

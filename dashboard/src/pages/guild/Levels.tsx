@@ -2,7 +2,7 @@
  * XP and ranks.
  *
  * The bot adds one point per message and levels on a curve it keeps in the database, so this
- * page is a scoreboard and a switch — there is no rate to tune that would not make the numbers
+ * page is a scoreboard and a switch - there is no rate to tune that would not make the numbers
  * mean something other than what they mean.
  */
 import { Medal } from 'lucide-react'
@@ -28,7 +28,6 @@ export default function Levels() {
     <div className="grid gap-5">
       <PageHeader
         title="Levels"
-        hint="One point per message. That is the whole economy."
         actions={list.data?.enabled ? <Badge variant="secondary">{rows.length} ranked</Badge> : <Badge variant="outline">off</Badge>}
       />
 
@@ -36,7 +35,6 @@ export default function Levels() {
         feature="general"
         title="Ranks"
         icon={Medal}
-        description="Switching this off stops the counter, not the leaderboard: what is already earned stays."
         fields={[
           { kind: 'switch', key: 'levels_enabled', label: 'Count messages towards a level' },
           { kind: 'switch', key: 'dms_enabled', label: 'Let members use commands in DMs' },

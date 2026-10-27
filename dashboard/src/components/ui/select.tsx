@@ -94,7 +94,7 @@ function SelectContent({
 
 function SelectLabel({ className, ...props }: React.ComponentProps<"div">) {
   // Not `Select.GroupLabel`: that primitive belongs to a `Select.Group` and throws without one.
-  // A caption above an option list is a plain element — see `DropdownMenuLabel` in
+  // A caption above an option list is a plain element - see `DropdownMenuLabel` in
   // `dropdown-menu.tsx`, where the same mapping took a page down. `SelectGroupLabel` is the
   // group-scoped one, for when a list really is grouped.
   return (

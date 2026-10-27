@@ -7,7 +7,7 @@ proves nothing. Run it with
     python3 -m unittest discover -s tests -t .
 
 The pattern throughout is the same: build a throwaway install directory, point
-`launcher.ROOT` at it, and assert on what the launcher decides — never on whether cargo
+`launcher.ROOT` at it, and assert on what the launcher decides - never on whether cargo
 or npm work, which is those tools' business and is covered by `main.py check` on a real
 machine.
 """
@@ -140,7 +140,7 @@ class TestEnvFile(LauncherCase):
         self.assertNotIn("lowercase_ignored", got)
         self.assertNotIn("NO_EQUALS_SIGN", got)
         # A comment after a closing quote is stripped, exactly as the Rust parser does
-        # it — the launcher and the server read the same file and must not disagree.
+        # it - the launcher and the server read the same file and must not disagree.
         self.assertEqual(got["AFTER_QUOTE"], "data/x.db")
         self.assertEqual(got["AFTER_DOUBLE"], "a b")
         self.assertEqual(got["UNTERMINATED"], '"oops')
@@ -193,7 +193,7 @@ class TestConfig(LauncherCase):
         of an install. It belongs in `notes()`, where it can be read; keeping it in
         `problems()` meant `main.py run` refused to start on the one configuration the
         deploy guide tells you to write, and refused it for a reason that was not even
-        true — the origin check passes *because* the value matches the address bar."""
+        true - the origin check passes *because* the value matches the address bar."""
         cfg = launcher.Config({"AERONA_TOKEN": "x" * 40, "AERONA_BASE_URL": "http://aerona.example.com/"})
         problems = cfg.problems()
         self.assertTrue(any("must not end with a slash" in x for x in problems), problems)
@@ -207,7 +207,7 @@ class TestConfig(LauncherCase):
 
     def test_the_redirect_uri_is_said_before_the_first_login(self):
         """Discord answers `Invalid OAuth2 redirect_uri` in the user's browser, from a
-        request that never reaches this install — there is no log line of ours that
+        request that never reaches this install - there is no log line of ours that
         explains it. So the launcher prints the exact string it will send, and the missing
         half of the credentials gets its own sentence instead of a silent half-configured
         login button."""
@@ -391,7 +391,7 @@ class TestToolchainPlacement(LauncherCase):
 class TestFirstBootEnv(LauncherCase):
     def test_it_writes_env_with_a_generated_master_key_once(self):
         (self.root / ".env.example").write_text(
-            "# Aerona — required\n"
+            "# Aerona - required\n"
             "AERONA_TOKEN=put-your-discord-bot-token-here\n"
             "AERONA_PORT=8080\n"
             "AERONA_BASE_URL=http://localhost:8080\n"
@@ -445,6 +445,36 @@ class TestDashboardGate(LauncherCase):
         (self.root / "dashboard" / "dist").mkdir(parents=True)
         (self.root / "dashboard" / "dist" / "index.html").write_text("<html></html>")
         self.assertFalse(launcher.dashboard_needs_build(cfg))
+
+    def test_the_htmls_asset_list_is_read_from_both_documents(self):
+        """The launcher can answer "is the dashboard complete" because the documents say what they
+        need. Both files matter: `shell.html` is what a deep link to a guild page loads, and it names
+        the same stylesheet the entry document does."""
+        dist = self.root / "dashboard" / "dist"
+        (dist / "assets").mkdir(parents=True)
+        (dist / "index.html").write_text(
+            '<link rel="stylesheet" href="/assets/style-Ab12.css">'
+            '<script type="module" src="/assets/index-Cd34.js"></script>',
+            encoding="utf-8",
+        )
+        (dist / "shell.html").write_text(
+            '<link rel="stylesheet" href="/assets/style-Ab12.css">'
+            '<img src="/assets/logo-2.png">',
+            encoding="utf-8",
+        )
+        (dist / "assets" / "style-Ab12.css").write_text("a {}", encoding="utf-8")
+        self.assertEqual(
+            launcher.referenced_assets(dist),
+            ["assets/index-Cd34.js", "assets/logo-2.png", "assets/style-Ab12.css"],
+        )
+
+    def test_a_query_suffix_on_an_asset_url_is_not_part_of_the_name(self):
+        dist = self.root / "dashboard" / "dist"
+        (dist / "assets").mkdir(parents=True)
+        (dist / "index.html").write_text(
+            '<link rel="stylesheet" href="/assets/style-Ab12.css?v=2">', encoding="utf-8"
+        )
+        self.assertEqual(launcher.referenced_assets(dist), ["assets/style-Ab12.css"])
 
     def test_no_dashboard_directory_is_a_note_not_a_failure(self):
         """A dashboard nobody built must not stop the API from coming up: the skip path

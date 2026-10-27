@@ -16,7 +16,7 @@ pub fn now() -> i64 {
         .unwrap_or_default()
 }
 
-/// Milliseconds since the Unix epoch — used for latency and sub-second windows.
+/// Milliseconds since the Unix epoch - used for latency and sub-second windows.
 pub fn now_ms() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -28,7 +28,7 @@ pub fn now_ms() -> i64 {
 /// calendar crate. Used only for human-facing rendering.
 pub fn format(ts: i64) -> String {
     if ts <= 0 {
-        return "—".into();
+        return "-".into();
     }
     let days = ts.div_euclid(86_400);
     let sod = ts.rem_euclid(86_400);
@@ -81,7 +81,7 @@ mod tests {
     #[test]
     fn formats_utc() {
         assert_eq!(format(1_766_624_400), "2025-12-25 01:00:00Z");
-        assert_eq!(format(0), "—");
+        assert_eq!(format(0), "-");
     }
 
     #[test]

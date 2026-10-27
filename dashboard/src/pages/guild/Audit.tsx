@@ -49,7 +49,6 @@ export default function Audit() {
     <div className="grid gap-5">
       <PageHeader
         title="Audit"
-        hint="Configuration and moderation actions taken through this panel."
         actions={
           <>
             {chain !== 'unknown' ? (
@@ -96,11 +95,11 @@ export default function Audit() {
                   <code className="text-[13px]">{e.action}</code>
                 </TableCell>
                 <TableCell className="text-muted-foreground" title={e.target ?? ''}>
-                  {e.target ? shortId(e.target) : '—'}
+                  {e.target ? shortId(e.target) : '-'}
                 </TableCell>
-                <TableCell className="text-muted-foreground">{e.ip ?? '—'}</TableCell>
+                <TableCell className="text-muted-foreground">{e.ip ?? '-'}</TableCell>
                 <TableCell className="font-mono text-[11px] text-muted-foreground" title={e.hash ?? ''}>
-                  {e.hash ? e.hash.slice(0, 10) : '—'}
+                  {e.hash ? e.hash.slice(0, 10) : '-'}
                 </TableCell>
               </>
             )

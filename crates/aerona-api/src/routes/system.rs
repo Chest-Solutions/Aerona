@@ -43,8 +43,8 @@ pub fn routes() -> Router<AppState> {
 
 /// Routes that live outside `/api/v1`, merged onto the outer router.
 ///
-/// The Discord callback is mounted at `/auth/callback` — the path a portal entry reads as a
-/// login endpoint rather than an API endpoint, and the shape the working examples use — while
+/// The Discord callback is mounted at `/auth/callback` - the path a portal entry reads as a
+/// login endpoint rather than an API endpoint, and the shape the working examples use - while
 /// `/api/v1/auth/discord/callback` keeps answering as an alias. An install configured before
 /// the move therefore does not have to be re-registered in the portal to keep signing people
 /// in, and a query string (the `code` and `state` Discord just sent) is carried across
@@ -52,7 +52,7 @@ pub fn routes() -> Router<AppState> {
 /// The paths this crate answers *outside* `/api/v1`, in one list, because two things have to
 /// agree on it: the router mounts them, and `app.rs`'s static layer has to know they exist.
 /// That layer decides "there is no such page" by looking for `dist/<path>/index.html`, and a
-/// route is not a file — so before this list existed, a sign-in bounce out of `/auth/callback`
+/// route is not a file - so before this list existed, a sign-in bounce out of `/auth/callback`
 /// had its 303 overwritten with a 404 by the layer that never knew a handler had answered. The
 /// browser only follows 3xx, so the operator was left staring at the 404 document while the
 /// `Location` header went unread, and the sign-in page was unreachable for real installs.
@@ -61,7 +61,7 @@ pub const ROOT_PATHS: &[&str] = &[aerona_core::config::Config::CALLBACK_PATH];
 /// Prefixes of paths the *client* router owns, and which therefore have no file of their
 /// own: a guild page URL carries the server id inside it, so `dist/guild/<id>/tickets/index
 /// .html` will never exist while the route is entirely real. Without this list a refresh on
-/// a deep link into a server answers the 404 document — which is how a shareable link to
+/// a deep link into a server answers the 404 document - which is how a shareable link to
 /// somebody's moderation queue stops working, and why the OAuth return target is worth
 /// having at all.
 pub const APP_PREFIXES: &[&str] = &["/guild/"];
@@ -79,7 +79,7 @@ pub fn public_routes() -> Router<AppState> {
     })
 }
 
-/// `GET /api/v1/status` — unauthenticated on purpose: the supervisor and any
+/// `GET /api/v1/status` - unauthenticated on purpose: the supervisor and any
 /// operator with a browser must be able to see that the install is alive before a
 /// session exists. It therefore reports only non-sensitive facts.
 async fn status(
@@ -117,7 +117,7 @@ async fn status(
         // The value a login would send as `redirect_uri`, plus where it came from. Only the
         // two operator-authored sources are echoed back: when it is derived from the request's
         // own `Host`, reflecting it would hand an attacker a string to read out of JSON, and
-        // the dashboard does not need it — the browser's own origin *is* that value, and
+        // the dashboard does not need it - the browser's own origin *is* that value, and
         // the login page builds the derived case locally.
         "oauth": {
             "configured": state.cfg.oauth_configured(),
@@ -213,7 +213,7 @@ async fn logout(
                     .meta(json!({ "sessionId": session.id })),
             );
         }
-        // A key cannot be "logged out" — revoking it is an explicit admin action.
+        // A key cannot be "logged out" - revoking it is an explicit admin action.
         auth::Principal::Key { key } => {
             return Err(Invalid(Error::Invalid(format!(
                 "api key {} is revoked under /api/v1/keys, not logged out",
@@ -256,7 +256,7 @@ async fn list_guilds(
     }
     // The other half of the list: servers this session's operator administers that Aerona is
     // not in yet. They come from the grant list Discord answered with at sign-in, and without
-    // them a fresh install tells the only person who can fix it that there is no server — the
+    // them a fresh install tells the only person who can fix it that there is no server - the
     // invite step of a public bot's dashboard exists precisely for this state, so each row
     // carries its own link. A key principal has no grant list and sees only what the bot
     // already serves, which is also all a key is allowed to touch.
@@ -300,7 +300,7 @@ async fn list_guilds(
     Ok(respond::ok(json!({ "guilds": out })))
 }
 
-/// `GET /guilds/{guild}` — everything the dashboard's overview needs in one round
+/// `GET /guilds/{guild}` - everything the dashboard's overview needs in one round
 /// trip: every feature document, live state and the headline counts.
 async fn guild_root(
     State(state): State<AppState>,
@@ -352,7 +352,7 @@ async fn read_settings(
     ))
 }
 
-/// `PATCH /guilds/{guild}/settings/{feature}` — merge, validate, store, audit.
+/// `PATCH /guilds/{guild}/settings/{feature}` - merge, validate, store, audit.
 async fn update_settings(
     State(state): State<AppState>,
     guild: Guild,
@@ -388,25 +388,37 @@ async fn update_settings(
     );
     // Two documents have a Discord-side consequence, and the outbox is the only way to
     // reach Discord: saving the bot's guild profile queues the apply, and changing which
-    // commands this server has queued a re-registration. Both are best-effort — a failed
+    // commands this server has queued a re-registration. Both are best-effort - a failed
     // enqueue must not turn a saved setting into an error, because the setting *is* saved.
     // At most one follow-up per document, so it is an id and not a list: a page that shows
     // "Saved · queued #4812" must be able to name the one row it queued.
     let follow_up = match f {
-        Feature::Identity => Some("identity.apply"),
-        Feature::Commands => Some("commands.sync"),
+        Feature::Identity => Some(("identity.apply", json!({}))),
+        Feature::Commands => Some(("commands.sync", json!({}))),
+        // The tickets page is where the board's channel is chosen, so saving it with a channel
+        // named *is* the instruction to put the board there. Redraw rather than post: the worker
+        // edits the message that is already in the channel and binds the rows to it, so pressing
+        // Save twice does not leave two boards behind.
+        Feature::Tickets
+            if changed
+                && normalized
+                    .get("board_channel_id")
+                    .and_then(Value::as_str)
+                    .is_some() =>
+        {
+            Some((
+                "panel.redraw",
+                json!({ "channel": normalized["board_channel_id"].as_str().unwrap_or_default() }),
+            ))
+        }
         _ => None,
     };
     let mut queued = None;
-    if let Some(action) = follow_up {
-        match state.db.enqueue_action(
-            guild.id,
-            guild.actor(),
-            &guild.label(),
-            action,
-            &json!({}),
-            "",
-        ) {
+    if let Some((action, args)) = follow_up {
+        match state
+            .db
+            .enqueue_action(guild.id, guild.actor(), &guild.label(), action, &args, "")
+        {
             Ok(id) => queued = Some(id),
             // A failed enqueue must not turn a saved setting into an error: the setting *is*
             // saved, and the worker will pick the change up on its next reload anyway.

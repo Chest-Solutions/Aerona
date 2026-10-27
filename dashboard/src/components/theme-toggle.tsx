@@ -1,5 +1,5 @@
 /**
- * Light, dark, system — three options, one class on `<html>`.
+ * Light, dark, system - three options, one class on `<html>`.
  *
  * This is not the panel's old theme switch: the stylesheet is shadcn's own, so `.dark` is
  * the only thing it understands, and the values behind it belong to the registry. The
@@ -60,7 +60,7 @@ export function ThemeToggle() {
   )
 }
 
-/** The resolved preference, for anything that must follow it — sonner's toaster is the only
+/** The resolved preference, for anything that must follow it - sonner's toaster is the only
  *  consumer today, and it is why the provider exists rather than a bare class toggle. */
 export function useTheme() {
   return useContext(Ctx)

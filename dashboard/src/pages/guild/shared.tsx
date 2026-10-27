@@ -8,11 +8,20 @@ import type { LucideIcon } from 'lucide-react'
 import { Bot, TrendingDown, TrendingUp } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
+import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Table as ShadTable, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+
+import {
+  DiscordEmbed,
+  DiscordMarkdown,
+  DiscordMessage,
+  DiscordMessages,
+} from '@discord-message-components/react'
+import '@discord-message-components/react/styles'
 
 import { useRouter } from '../../router'
 import { pageFor } from '../../lib/nav'
@@ -20,7 +29,7 @@ import { useSession } from '../../lib/hooks'
 
 /**
  * The page's own head. Its glyph comes from `lib/nav.ts` unless a page overrides it, so the mark in
- * the rail and the mark above the content are the same for the same page — one table, two places,
+ * the rail and the mark above the content are the same for the same page - one table, two places,
  * no chance to disagree, and no page able to arrive unmarked.
  */
 export function PageHeader({
@@ -97,7 +106,7 @@ export function Loading() {
 
 /**
  * The state a guild page shows when Aerona is not in that server. It is not an error page:
- * the URL is right, the operator is right, only the bot is missing — so the whole screen is
+ * the URL is right, the operator is right, only the bot is missing - so the whole screen is
  * one button that fixes it, and Discord sends them back here afterwards.
  */
 export function BotNotHere({ guild, name, inviteUrl }: { guild: string; name: string; inviteUrl: string | null }) {
@@ -143,6 +152,100 @@ export function iconUrl(guildId: string, hash: string | null | undefined, size =
   return `https://cdn.discordapp.com/icons/${guildId}/${hash}.${ext}?size=${size}`
 }
 
+/** Discord's integer as the CSS colour the renderer wants. `null` is a real answer: with no colour
+ *  Discord draws no bar at all, and a preview that invented blurple there would be showing a card
+ *  the operator did not configure.
+ */
+export function embedHex(color: number | null | undefined): string | undefined {
+  if (color === null || color === undefined) return undefined
+  return `#${(color >>> 0).toString(16).padStart(6, '0').slice(-6)}`
+}
+
+/**
+ * The card as Discord will draw it, using the client's own look.
+ *
+ * The pages used to sketch an embed themselves - a `border-s-4` div - and that sketch is half the
+ * reason the colour was reported broken: a hand-drawn swatch fills the whole left edge, while
+ * Discord tints four pixels of a dark card, so "white" looked invisible on Discord and loud in the
+ * preview. Rendering the real component with its real stylesheet means the preview and Discord can
+ * not disagree, and a preview that no longer matches is a bug in this file rather than a feature
+ * request.
+ */
+export function DiscordEmbedPreview({
+  color,
+  title,
+  body,
+  author,
+  timestamp,
+  edited,
+  children,
+}: {
+  color: number | null | undefined
+  title?: string | null
+  body?: string | null
+  author?: string
+  timestamp?: string
+  edited?: boolean
+  children?: React.ReactNode
+}) {
+  const hasCard = Boolean(title?.trim() || body?.trim() || (color ?? null) !== null)
+  return (
+    <div className="w-full max-w-[64ch] overflow-x-auto rounded-lg">
+      <DiscordMessages>
+        <DiscordMessage author={author ?? 'Aerona'} bot timestamp={timestamp} edited={edited}>
+          {hasCard ? (
+            <DiscordEmbed borderColor={embedHex(color)} embedTitle={title?.trim() || undefined}>
+              {body?.trim() ? <DiscordMarkdown content={body} /> : null}
+              {children}
+            </DiscordEmbed>
+          ) : (
+            // No colour and nothing to put on a card: what Discord shows is a plain message, and
+            // the preview says so instead of drawing an empty box.
+            <DiscordMarkdown content="A plain message - no card, no colour." />
+          )}
+        </DiscordMessage>
+      </DiscordMessages>
+    </div>
+  )
+}
+
+/** A colour, edited the way the settings form edits one: a swatch and a hex box, both views of
+ *  the same integer, because the number is what Discord's API takes. */
+export function ColorField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: number
+  onChange: (v: number) => void
+}) {
+  const hex = `#${(value >>> 0).toString(16).padStart(6, '0').slice(-6)}`
+  return (
+    <label className="grid gap-1.5">
+      <span className="text-sm font-medium">{label}</span>
+      <span className="flex items-center gap-2">
+        <input
+          type="color"
+          aria-label={`${label} colour`}
+          value={hex}
+          onChange={(e) => onChange(parseInt(e.target.value.slice(1), 16) || 0)}
+          className="size-9 shrink-0 cursor-pointer rounded-md border bg-transparent p-1"
+        />
+        <Input
+          className="w-28 font-mono"
+          maxLength={7}
+          value={hex}
+          onChange={(e) => {
+            const raw = e.target.value.trim().replace(/^#/, '')
+            if (/^[\da-fA-F]{1,6}$/.test(raw)) onChange(Number.parseInt(raw.padStart(6, '0'), 16))
+          }}
+        />
+      </span>
+    </label>
+  )
+}
+
 export function guildInitials(name: string): string {
   return name
     .split(/\s+/)
@@ -153,7 +256,7 @@ export function guildInitials(name: string): string {
 }
 
 /**
- * "just now" / "4 min ago" / "3 h ago" / "12 d ago" — the only time format in the panel, and
+ * "just now" / "4 min ago" / "3 h ago" / "12 d ago" - the only time format in the panel, and
  * it owns the word "ago". Leaving that to each caller is what made "never ago" and "just now
  * ago" possible, and a report row's age is the one number these pages have to get right.
  */
@@ -168,8 +271,21 @@ export function ago(epochSecs: number | null | undefined): string {
   return `${Math.floor(hours / 24)} d ago`
 }
 
+/** The other direction from `ago`: a deadline a moderator was promised, in the words they read. */
+export function inTime(epochSecs: number | null | undefined): string {
+  if (!epochSecs) return '-'
+  const secs = epochSecs - Math.floor(Date.now() / 1000)
+  if (secs <= 0) return 'any moment now'
+  if (secs < 90) return 'in under a minute'
+  const mins = Math.floor(secs / 60)
+  if (mins < 60) return `in ${mins} min`
+  const hours = Math.floor(mins / 60)
+  if (hours < 48) return `in ${hours} h`
+  return `in ${Math.floor(hours / 24)} d`
+}
+
 export function dateOf(epochSecs: number | null | undefined): string {
-  if (!epochSecs) return '—'
+  if (!epochSecs) return '-'
   return new Date(epochSecs * 1000).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
@@ -177,7 +293,7 @@ export function dateOf(epochSecs: number | null | undefined): string {
  *  value is the element's title, so a hover or a select copies the whole thing. */
 export function shortId(id: string | number | null | undefined): string {
   const v = String(id ?? '')
-  if (!v) return '—'
+  if (!v) return '-'
   return v.length > 10 ? `${v.slice(0, 4)}…${v.slice(-4)}` : v
 }
 

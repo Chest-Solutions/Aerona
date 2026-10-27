@@ -2,7 +2,7 @@
 //!
 //! The interesting part is the failure policy, so that is what the comments are for.
 //! Short version: the dashboard is the thing a restart is painful for, and the gateway
-//! is the thing that breaks on its own — so the API decides when the *process* exits,
+//! is the thing that breaks on its own - so the API decides when the *process* exits,
 //! and the worker is retried inside this process for as long as the process lives.
 
 use std::path::{Path, PathBuf};
@@ -120,7 +120,7 @@ async fn serve(cfg: Config, db: Db) -> Result<i32> {
     if let Some(mut handle) = bot {
         if tokio::time::timeout(BOT_GRACE, &mut handle).await.is_err() {
             tracing::warn!(
-                "the worker did not finish within {}s of the drain; abandoning it — any \
+                "the worker did not finish within {}s of the drain; abandoning it - any \
                  action it had claimed is requeued by the claim timeout",
                 BOT_GRACE.as_secs()
             );
@@ -136,7 +136,7 @@ async fn serve(cfg: Config, db: Db) -> Result<i32> {
 /// The worker's restart loop.
 ///
 /// Every attempt builds a fresh [`aerona_bot::BotState`], because that state holds the
-/// `Context` serenity hands out — reusing it across a reconnect would leave the outbox
+/// `Context` serenity hands out - reusing it across a reconnect would leave the outbox
 /// executor talking to a dead shard set. The transient state that *is* worth keeping
 /// (cooldowns, raid windows) lives only as long as a healthy connection anyway: after
 /// an outage, letting somebody run `!raid` again immediately is the correct behaviour.
@@ -167,7 +167,7 @@ async fn supervise(cfg: Arc<Config>, db: Db, stop: Stop) {
                         tries = attempts,
                         %e,
                         "Discord refused this bot token. Check AERONA_TOKEN (and that the \
-                         application is not archived) — the dashboard keeps serving while \
+                         application is not archived) - the dashboard keeps serving while \
                          I keep retrying"
                     );
                 } else {
@@ -218,7 +218,7 @@ fn backoff(attempts: u32, rejected: bool) -> u64 {
 
 fn worker_summary(cfg: &Config) -> String {
     if !cfg.bot_enabled {
-        return "worker          off (AERONA_BOT=off — dashboard only)\n".to_string();
+        return "worker          off (AERONA_BOT=off - dashboard only)\n".to_string();
     }
     let mut s = String::from("worker          on\n");
     for line in aerona_bot::worker::report(cfg).lines() {
@@ -278,7 +278,7 @@ async fn doctor(cfg: &Config, db: &Db) -> Result<i32> {
             },
         );
         if !assets {
-            println!("dashboard       WARNING: assets/ is missing — the page will render unstyled");
+            println!("dashboard       WARNING: assets/ is missing - the page will render unstyled");
         }
     } else {
         println!(
@@ -368,7 +368,7 @@ async fn whoami(cfg: &Config) -> Result<String> {
         .send()
         .await
         .map_err(|e| {
-            // "no network" must not look like "bad token" — the advice differs, so the
+            // "no network" must not look like "bad token" - the advice differs, so the
             // message carries that distinction and `doctor` reads it back.
             Error::Discord {
                 status: 0,
@@ -380,7 +380,7 @@ async fn whoami(cfg: &Config) -> Result<String> {
         return Err(Error::Discord {
             status: status.as_u16(),
             message:
-                "the token was rejected — it is wrong, revoked, or the application is archived"
+                "the token was rejected - it is wrong, revoked, or the application is archived"
                     .into(),
         });
     }
@@ -429,7 +429,7 @@ fn count_documents(root: &Path) -> usize {
 fn note_pepper_secret(created: Option<PathBuf>) {
     let Some(path) = created else { return };
     tracing::warn!(
-        "no bot token and no AERONA_MASTER_KEY: wrote a persistent pepper to {} — keep it \
+        "no bot token and no AERONA_MASTER_KEY: wrote a persistent pepper to {} - keep it \
          with your database backup, sessions and API keys are keyed with it",
         path.display()
     );
@@ -439,7 +439,7 @@ fn note_pepper_secret(created: Option<PathBuf>) {
 /// level and the world at `warn`. `RUST_LOG` still wins, because an operator debugging
 /// at 2 a.m. should not have to edit a config file.
 ///
-/// stdout, because the supervisor captures it — and in one process there is no second
+/// stdout, because the supervisor captures it - and in one process there is no second
 /// stream to keep apart, so the bot's old habit of writing to stderr would just split a
 /// story in two files.
 fn init_tracing(level: &str, verbose: bool) {

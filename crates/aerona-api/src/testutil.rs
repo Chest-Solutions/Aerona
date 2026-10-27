@@ -96,7 +96,7 @@ pub fn test_db() -> Db {
     Db::open_path(&root.join("test.db")).expect("open the test database")
 }
 
-/// A temp root, its config, and a database in it — the whole install, in one value
+/// A temp root, its config, and a database in it - the whole install, in one value
 /// that cleans up after itself.
 pub struct TestEnv {
     pub root: PathBuf,
@@ -143,7 +143,7 @@ impl TestEnv {
         )
     }
 
-    /// As `session_cookie`, but stamps the row with a grant list first — which is exactly
+    /// As `session_cookie`, but stamps the row with a grant list first - which is exactly
     /// what `finish_login` does with Discord's answer. Tests about *which servers a session
     /// may see* have to mint the way the product does; a `session_cookie` session has a NULL
     /// list, and NULL means unrestricted, so such a test would pass for the wrong reason.
@@ -227,8 +227,8 @@ impl Site {
         Self::with_env_and(tag, env, None).await
     }
 
-    /// As `with_env`, but the router is assembled the way `aerona serve` assembles it — with
-    /// `Some(assets)` — so the static layer is in the path of every response under test.
+    /// As `with_env`, but the router is assembled the way `aerona serve` assembles it - with
+    /// `Some(assets)` - so the static layer is in the path of every response under test.
     pub async fn with_env_and(
         _tag: String,
         env: TestEnv,
@@ -295,7 +295,7 @@ impl Site {
         (status, value)
     }
 
-    /// As `raw`, but also hands back the response headers — which is the only way to
+    /// As `raw`, but also hands back the response headers - which is the only way to
     /// assert that a login really set a cookie.
     pub async fn exchange(
         &self,

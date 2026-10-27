@@ -1,7 +1,7 @@
 //! The one binary an operator runs.
 //!
 //! Kept deliberately small: parse the arguments, build a runtime, hand over to
-//! [`aerona::serve`]. The reason it is not `#[tokio::main]` is the runtime builder — on a
+//! [`aerona::serve`]. The reason it is not `#[tokio::main]` is the runtime builder - on a
 //! shared host (a game panel, a 40-core box with a 1 CPU quota) tokio sizes its thread
 //! pool from the *machine*, not from the cgroup, and a dashboard that is not answering
 //! because 40 idle worker threads are fighting a cpuset for a timeslice is a bad way to

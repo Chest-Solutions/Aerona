@@ -4,7 +4,7 @@
 //! *custom rules* ([`text::compile_rules`] + [`text::scan_custom`], evaluated locally and
 //! therefore free, instant and private) and *remote classification* (Sightengine, only
 //! when a guild selects categories for it). Both feed one hit list and
-//! [`text::decide`] turns that into a [`FilterVerdict`] — the same function the
+//! [`text::decide`] turns that into a [`FilterVerdict`] - the same function the
 //! dashboard's "test a phrase" endpoint calls, so what an operator sees in a preview is
 //! what the gate does, by construction rather than by discipline.
 
@@ -30,7 +30,7 @@ use crate::BotState;
 #[derive(Debug, Clone)]
 pub struct Outcome {
     pub verdict: FilterVerdict,
-    /// The message was removed. The caller must then stop processing it — no XP, no
+    /// The message was removed. The caller must then stop processing it - no XP, no
     /// sticky tally, no command dispatch: a deleted message must not be rewarded.
     pub deleted: bool,
     /// The remote provider failed, so the log can say "unavailable" instead of silently
@@ -179,7 +179,7 @@ pub async fn evaluate(
 ) -> Option<Outcome> {
     // The two local guards are read here rather than passed in: they are per guild, they
     // change under the operator's fingers, and the config epoch makes a stale read
-    // impossible within one message — so the database is the freshest thing available.
+    // impossible within one message - so the database is the freshest thing available.
     let links = state.db.link_guard_config(guild).unwrap_or_default();
     let spam = state.db.anti_spam_config(guild).unwrap_or_default();
     if !cfg.enabled && !links.enabled && !spam.enabled {
@@ -333,7 +333,7 @@ pub async fn evaluate(
 
     // Verdict cache: keyed on the hash of the exact bytes plus the author, so a raid of
     // copy-pasted text is classified once and one user editing their own message is not
-    // judged twice. Only clean verdicts are cached — caching a violation would make the
+    // judged twice. Only clean verdicts are cached - caching a violation would make the
     // strike counter skip a repeat offender.
     if !deleted && cfg.cache_seconds > 0 {
         let hash = sha256_hex(text.as_bytes());
@@ -478,7 +478,7 @@ fn reason_for(hit: &GuardHit, action: GuardAction) -> String {
 /// edit, so both are inline as well. Nothing here is allowed to fail the message: a guard
 /// that cannot enforce has already done its logging, and the mod log is what a human reads.
 // Nine arguments, and clippy is right that that is a lot. The fix is a small `Enforcement` struct
-// — one call site, so it is cheap — but it is a change to how a warn, a deletion and a timeout are
+// - one call site, so it is cheap - but it is a change to how a warn, a deletion and a timeout are
 // passed into moderation itself, which is not this round's subject. Bundled here so the workspace
 // gate stays runnable; do the struct the next time an argument has to be added, since that is the
 // moment the positional list becomes a real hazard rather than a lint.
@@ -716,7 +716,7 @@ pub(crate) fn rfc3339(epoch_secs: i64) -> String {
 }
 
 /// Days since 1970-01-01 to a calendar date (Howard Hinnant's algorithm, the same one
-/// `aerona_core::time` uses — duplicated here because the crate exposes it over a
+/// `aerona_core::time` uses - duplicated here because the crate exposes it over a
 /// different shape and inventing a second conversion would be worse than three lines).
 fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
@@ -897,7 +897,7 @@ mod tests {
     #[test]
     fn a_disabled_guard_says_nothing_at_all() {
         // Both off, on text that would trip each of them. `LinkGuardConfig::default()` is
-        // *on* (invites only — the one rule no server argues with), so "off" has to be said
+        // *on* (invites only - the one rule no server argues with), so "off" has to be said
         // rather than assumed, which is exactly the trap this test exists to catch.
         let off = LinkGuardConfig {
             enabled: false,
@@ -1004,7 +1004,7 @@ mod tests {
         cfg.categories = vec![];
         cfg.categories_config = vec![r.clone()];
         // `strictness` is subtracted from the configured threshold, so a positive value
-        // means "flag more", not "require more" — the direction an operator expects when
+        // means "flag more", not "require more" - the direction an operator expects when
         // they say "be stricter".
         assert!(
             text::effective_threshold(&r, 20) < 0.80,

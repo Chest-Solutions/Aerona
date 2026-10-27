@@ -7,7 +7,7 @@ export const meta = pagesMeta.NotFound
 
 /** What an unknown address looks like when the whole product is one app: a sentence and the
  *  way back. Rendered by the API for any path it cannot find, which is why it is a route and
- *  not an error page in a template — a 404 that differs between the server and the client is
+ *  not an error page in a template - a 404 that differs between the server and the client is
  *  a 404 an operator has to debug twice. */
 export default function NotFound() {
   return (

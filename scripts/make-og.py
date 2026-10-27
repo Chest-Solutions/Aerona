@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regenerate `dashboard/public/og-image.jpg` — the 1200×630 card a link preview shows.
+"""Regenerate `dashboard/public/og-image.jpg` - the 1200×630 card a link preview shows.
 
 Not part of `npm run build`: it needs Pillow and the DejaVu fonts, and the output is a
 committed asset, so the build stays free of image toolchain. Run it by hand:
@@ -9,14 +9,14 @@ committed asset, so the build stays free of image toolchain. Run it by hand:
 Everything drawn comes from the panel's own tokens: `dashboard/src/index.css` is parsed for
 its `.dark` block, so the card is the palette the product actually has rather than a copy of it
 that drifts. Flat field, hairline border, one light accent, mono labels, and the copy is the
-product's own claim — "one process, one SQLite file" — because a share image is documentation
+product's own claim - "one process, one SQLite file" - because a share image is documentation
 for the people who will never open the site.
 
 Two things this file insists on, because both went wrong before it was committed:
 
 * **Measured, never guessed.** Every string is laid out with `textlength`, wrapped to the
   box it has to live in, and registered with `box()`. If anything would land outside the
-  canvas — or outside the card, or overlap the line above it — the script fails and prints
+  canvas - or outside the card, or overlap the line above it - the script fails and prints
   the number. The first version of this image clipped its whole right column and drew the
   command line on top of the tagline; both are now assertions, not observations.
 * **Cheap at this box's size.** The glow is blurred at 1/8 scale and stretched back
@@ -26,7 +26,7 @@ Two things this file insists on, because both went wrong before it was committed
 
 ImageMagick was the first attempt and is fine for crops, but composing canvas + glow + draw
 layer in one command line means later `-draw`s land on whichever image is current in the
-sequence — which is how the right column rendered nowhere. Pixel-exact coordinates beat
+sequence - which is how the right column rendered nowhere. Pixel-exact coordinates beat
 arguing with an implicit list.
 """
 from __future__ import annotations
@@ -48,7 +48,7 @@ def _oklch(L: float, C: float, H: float) -> tuple[int, int, int]:
     """oklch -> 8-bit sRGB, by the definitions, clamped.
 
     Only what the panel's tokens use: `oklch(L C H)` and `oklch(L C H / A%)`. Nothing here is
-    a colour management library, and it does not need to be — the file it reads is written by
+    a colour management library, and it does not need to be - the file it reads is written by
     one tool with one output format.
     """
     import math
@@ -101,7 +101,7 @@ def tokens() -> dict[str, tuple[int, int, int]]:
         out[name] = rgb
     missing = [w for w in want if w not in out]
     if missing:
-        sys.exit(f"{CSS}: .dark does not declare {', '.join(missing)} as oklch — this card reads "
+        sys.exit(f"{CSS}: .dark does not declare {', '.join(missing)} as oklch - this card reads "
                  f"its palette from that block, so update it here rather than adding a fallback")
     return out
 
@@ -124,7 +124,7 @@ def route_count() -> int:
     block = src[start:end if end > 0 else len(src)]
     n = len(re.findall(r'"(?:GET|POST|PUT|PATCH|DELETE)"', block))
     if n < 10:
-        sys.exit(f"{APP_RS}: parsed {n} routes out of the manifest — the block shape changed")
+        sys.exit(f"{APP_RS}: parsed {n} routes out of the manifest - the block shape changed")
     return n
 
 
@@ -225,7 +225,7 @@ class Layout:
         A claim like any string, because a logo is where a share image goes wrong quietly: a
         non-square paste is a squashed mark, and a box 6px past the card edge is a crop nobody
         notices until the preview is up. The ink follows the palette this file already parses out
-        of `index.css` rather than a second copy of that decision — a white glyph on a light card
+        of `index.css` rather than a second copy of that decision - a white glyph on a light card
         is invisible, and invisible is exactly what a link preview looks like.
         """
         x0, y0, x1, y1 = xyxy
@@ -235,7 +235,7 @@ class Layout:
         if box[2] > W or box[3] > H or x0 < 0 or y0 < 0:
             self.errors.append(f"'{name}' runs off the canvas: {box}")
         if not path.is_file():
-            self.errors.append(f"'{name}' has no art: {path} — run scripts/make-icons.py first")
+            self.errors.append(f"'{name}' has no art: {path} - run scripts/make-icons.py first")
             return
         art = Image.open(path).convert("RGBA").resize((side, side), Image.LANCZOS)
         self.img.paste(art, (x0, y0), art)
@@ -248,7 +248,7 @@ class Layout:
 
 
 def _lum(hex_color: str) -> int:
-    """Summed 8-bit channels of `#rrggbb` — 384 is the mid grey. Enough to pick white ink or
+    """Summed 8-bit channels of `#rrggbb` - 384 is the mid grey. Enough to pick white ink or
     black ink without importing a colour library into a script that only needs one comparison."""
     h = hex_color.lstrip("#")
     return sum(int(h[i:i + 2], 16) for i in (0, 2, 4))
@@ -295,7 +295,7 @@ def main() -> int:
 
     # The mark, then the wordmark beside it, then the ember block as a full stop. The glyph used
     # to be a drawn square standing in for a logo that did not exist yet; there is a logo now, so
-    # the square is gone and its box belongs to the mark — sized to the title's cap height rather
+    # the square is gone and its box belongs to the mark - sized to the title's cap height rather
     # than to taste. Everything on the line shifts by the mark's width, so the ember is still the
     # last thing, not something the logo sits on top of.
     ty = CARD[1] + 62
@@ -310,7 +310,7 @@ def main() -> int:
     lay.block((int(word_x + tw + 16), ty + 74, int(word_x + tw + 40), ty + 98), EMBER, name="wordmark block")
 
     body = ("Warns and strikes, tickets, sticky messages, raid defence and a rules-first "
-            "text filter — one bot, one dashboard, one SQLite file.")
+            "text filter - one bot, one dashboard, one SQLite file.")
     y = lay.text((x0, ty + 128), body, tag, SOFT, inside=inner, name="tagline",
                  max_w=CARD[2] - x0 - PAD, max_lines=4, line_h=38)
 
@@ -342,7 +342,7 @@ def main() -> int:
     lay.text((W - 56 - int(d.textlength(ver, font=mono)), H - 46), ver, mono, DEEP, name="version")
 
     if lay.errors:
-        print("layout does not fit — fix the copy or the sizes:", file=sys.stderr)
+        print("layout does not fit - fix the copy or the sizes:", file=sys.stderr)
         for e in lay.errors:
             print(f"  {e}", file=sys.stderr)
         return 1

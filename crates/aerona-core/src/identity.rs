@@ -1,6 +1,6 @@
 //! Discord snowflakes and user-facing identifiers.
 //!
-//! A snowflake is `((timestamp_ms - DISCORD_EPOCH) << 22) | ...` — decoding it
+//! A snowflake is `((timestamp_ms - DISCORD_EPOCH) << 22) | ...` - decoding it
 //! gives us creation time for free, which is exactly what anti-raid needs to
 //! spot freshly created alt accounts without an extra API round-trip.
 
@@ -51,7 +51,7 @@ impl Snowflake {
     }
 
     /// Whole minutes of account age. `-1` if the clock says it is from the future
-    /// (happens on VMs with a skewed clock — treat as suspicious, not impossible).
+    /// (happens on VMs with a skewed clock - treat as suspicious, not impossible).
     pub fn age_minutes(self, now_ms: i64) -> i64 {
         let delta = now_ms - self.created_ms();
         if delta < 0 {
@@ -61,7 +61,7 @@ impl Snowflake {
     }
 
     /// The `Default` sentinel. `0` is not a valid Discord id, so "unset", "no
-    /// guild attached" and "cleared" are all represented by it — and nothing may
+    /// guild attached" and "cleared" are all represented by it - and nothing may
     /// treat it as an id.
     pub fn is_zero(self) -> bool {
         self.0 == 0
@@ -120,7 +120,7 @@ impl<'de> serde::Deserialize<'de> for Snowflake {
 /// `Snowflake(0)` is the "unset" marker used by container-level `#[serde(default)]`.
 /// `0` is never a real Discord id, so it can only ever match nothing in a query;
 /// callers that must reject it explicitly can check `id.0 == 0`.
-/// (`parse("0")` still succeeds — the API validates it separately as `not_found`
+/// (`parse("0")` still succeeds - the API validates it separately as `not_found`
 /// rather than pretending it was a malformed string.)
 impl Default for Snowflake {
     fn default() -> Self {
@@ -134,7 +134,7 @@ pub fn opaque_id(bytes: usize) -> String {
     crate::security::random_urlsafe(bytes)
 }
 
-/// Human-friendly ticket code: `AER-4F2K` style. Collision-tolerant — the
+/// Human-friendly ticket code: `AER-4F2K` style. Collision-tolerant - the
 /// `(guild, reference)` unique index makes a clash a retryable conflict.
 pub fn ticket_reference() -> String {
     const ALPHABET: &[u8] = b"ACDEFHJKLMNPQRTUVWXY3479"; // no I/O/0/1 ambiguity

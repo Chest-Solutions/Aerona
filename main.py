@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Aerona launcher — one file, one command, one process.
+"""Aerona launcher - one file, one command, one process.
 
     python3 main.py            # everything: get a binary, then serve
     python3 main.py build      # only the "get a binary" part
@@ -16,7 +16,7 @@ Neither needs python at run time. What python *is* needed for is the ten minutes
 the first boot, and it keeps being needed because the most common host for this project
 is a game panel, which is spectacularly bad at exactly those ten minutes:
 
-* it has a python and nothing else — no rust toolchain, no node, no package manager you
+* it has a python and nothing else - no rust toolchain, no node, no package manager you
   are allowed to use;
 * it runs one command, and an exit looks like a crash, so "run `cargo build` first" is
   not a sentence an operator can act on;
@@ -24,13 +24,13 @@ is a game panel, which is spectacularly bad at exactly those ten minutes:
 * it hands you one allocated port and does not tell your config about it.
 
 So this file does the awkward parts and nothing else. In order: it makes sure a binary
-exists — preferring the prebuilt one that ships in `bin/`, and otherwise installing a
-Rust toolchain *into the server directory* and building — then it starts one process,
+exists - preferring the prebuilt one that ships in `bin/`, and otherwise installing a
+Rust toolchain *into the server directory* and building - then it starts one process,
 restarts it with a backoff if it dies, relays its log with secrets removed, and shuts it
 down on SIGTERM so SQLite closes cleanly.
 
 What it deliberately does **not** do: no request handling, no reimplementation of any
-rule. Auth, rate limits, validation, Discord behaviour — all in Rust. If you want to
+rule. Auth, rate limits, validation, Discord behaviour - all in Rust. If you want to
 know why a request was refused, read `crates/aerona-api`; if you want to know why the
 process is not up, read this file.
 """
@@ -87,7 +87,7 @@ OFF_VALUES = ("off", "false", "0", "no", "none", "disabled")
 
 # The `.env` we write on a first boot when there is no `.env.example` to copy (a
 # binary-only deployment: someone unzipped `bin/` and `dashboard/` and nothing else).
-MINIMAL_ENV = """# Aerona — written by main.py on first boot, because there was no .env and
+MINIMAL_ENV = """# Aerona - written by main.py on first boot, because there was no .env and
 # no .env.example to copy. Everything here is either a default or generated.
 AERONA_TOKEN={token}
 AERONA_PORT={port}
@@ -147,7 +147,7 @@ def unquote(value: str) -> str:
 def parse_env_file(path: Path) -> dict[str, str]:
     """A deliberately small subset of dotenv syntax: `KEY=value`, `export KEY=value`,
     comments, blank lines, optional single or double quotes. Anything fancier should be
-    set in the environment instead — a launcher is not a shell."""
+    set in the environment instead - a launcher is not a shell."""
     values: dict[str, str] = {}
     if not path.is_file():
         return values
@@ -199,7 +199,7 @@ class Config:
         # Left empty when unset, on purpose. The API has a documented fallback for an
         # install that has not named its origin yet (it accepts the host the operator
         # actually types), and inventing `http://localhost:PORT` here would switch that
-        # fallback off in the generated `.env` — turning every browser mutation on a game
+        # fallback off in the generated `.env` - turning every browser mutation on a game
         # panel's IP into a 403 from a guard rail nobody asked for.
         self.base_url = (env.get("AERONA_BASE_URL") or "").strip()
         # Where *this script* talks to, for its own calls and for the line it prints.
@@ -230,7 +230,7 @@ class Config:
         if self.token_required and len(self.token) < TOKEN_MIN:
             out.append(
                 "AERONA_TOKEN is missing or shorter than "
-                f"{TOKEN_MIN} characters — set it in .env (or in the panel's environment), "
+                f"{TOKEN_MIN} characters - set it in .env (or in the panel's environment), "
                 "or run the dashboard alone with AERONA_BOT=off."
             )
         if self.token and re.fullmatch(r"[A-Za-z0-9_\-\.]{%d,}" % TOKEN_MIN, self.token) is None:
@@ -239,11 +239,11 @@ class Config:
             out.append(f"AERONA_PORT must be a number between 1 and 65535 (got {self.port_raw!r}).")
         if self.port != -1 and self.port < 1024 and not self.dev:
             out.append(
-                f"AERONA_PORT={self.port} needs root on most systems — use a port above 1024 "
+                f"AERONA_PORT={self.port} needs root on most systems - use a port above 1024 "
                 "(a game panel gives you one) or pass --dev."
             )
         if self.base_url.endswith("/"):
-            out.append("AERONA_BASE_URL must not end with a slash — it is compared against browser Origin headers.")
+            out.append("AERONA_BASE_URL must not end with a slash - it is compared against browser Origin headers.")
         try:
             self.data_dir.mkdir(parents=True, exist_ok=True)
             probe = self.data_dir / ".aerona-write-test"
@@ -268,36 +268,52 @@ class Config:
             # boot here was wrong twice over: a game panel hands out one raw TCP port with
             # nothing in front of it, so plain http on a public name is the *normal* shape
             # of an install, not a misconfiguration; and the reason this script gave for
-            # refusing it was false — the origin check accepts a browser precisely because
+            # refusing it was false - the origin check accepts a browser precisely because
             # this value matches what the address bar says, and `cookies_secure()` on the
             # Rust side already leaves `Secure` off so the session cookie stays sendable.
-            # What is actually true is that the session cookie — and with it every
-            # moderation action it authorises — crosses the network in clear text, so say
+            # What is actually true is that the session cookie - and with it every
+            # moderation action it authorises - crosses the network in clear text, so say
             # that, and say how to fix it.
             out.append(
                 f"serving plain http on a public address ({self.base_url}): anyone on the path can read the "
-                "session cookie, and therefore every action it authorises. Fine to try, not to keep — put TLS in "
+                "session cookie, and therefore every action it authorises. Fine to try, not to keep - put TLS in "
                 "front (a Cloudflare Tunnel needs no inbound port), or keep it to `ssh -L "
                 f"{self.port}:127.0.0.1:{self.port}` and browse http://localhost:{self.port}."
+            )
+        # The switch behind "the log says (deleted)". Off is the honest default, because asking
+        # Discord for message content is a privileged intent a human has to tick in the developer
+        # portal, and a bot that requests it without the tick does not connect at all. But the
+        # consequence belongs next to the settings page, not in a forum post: the log records that a
+        # message went away, and cannot say what it said.
+        intent = (self.env.get("AERONA_CONTENT_INTENT", "") or "").strip().lower()
+        if intent not in ("1", "true", "yes", "on", "y"):
+            how = f"{intent!r}" if intent else "unset"
+            out.append(
+                f"AERONA_CONTENT_INTENT is {how}, so the bot does not ask Discord for message text: message "
+                "deletes and edits are still logged - who, where, when, and the message link - but the card "
+                "will say the text is unavailable instead of quoting it. To keep the text: tick Message "
+                "Content Intent under Privileged Gateway Intents in the Discord developer portal AND set "
+                "AERONA_CONTENT_INTENT=true. They are two separate switches, and one without the other does "
+                "nothing (the first without the second leaves the gateway refusing to connect)."
             )
         if not self.env.get("AERONA_BASE_URL"):
             out.append(
                 "AERONA_BASE_URL is unset, so the dashboard accepts its own IP/localhost origin "
                 "only. Point a domain at this box? Set AERONA_BASE_URL to exactly what the browser "
-                "types, no trailing slash — otherwise Discord's OAuth callback and every mutation "
+                "types, no trailing slash - otherwise Discord's OAuth callback and every mutation "
                 "from that domain are refused."
             )
         # The Discord half, said before the first login instead of after the first failed
         # one. `Invalid OAuth2 redirect_uri` is rendered by Discord, in the user's browser,
-        # from a request that never reaches this install — so there is no line in any log of
+        # from a request that never reaches this install - so there is no line in any log of
         # ours that explains it. The only useful thing to do is print the exact string that
         # will be sent, and where to paste it.
         client_id = (self.env.get("AERONA_DISCORD_CLIENT_ID") or "").strip()
         client_secret = (self.env.get("AERONA_DISCORD_CLIENT_SECRET") or "").strip()
         if client_id and not client_secret:
             out.append(
-                "AERONA_DISCORD_CLIENT_ID is set but AERONA_DISCORD_CLIENT_SECRET is not: nobody can sign in — "
-                "Discord is the only door the dashboard has. The secret is the second field under OAuth2 in the portal — and if it was "
+                "AERONA_DISCORD_CLIENT_ID is set but AERONA_DISCORD_CLIENT_SECRET is not: nobody can sign in - "
+                "Discord is the only door the dashboard has. The secret is the second field under OAuth2 in the portal - and if it was "
                 "ever shown in error, press Reset Secret before using it."
             )
         if client_id and client_secret:
@@ -307,13 +323,13 @@ class Config:
                     f"Discord login will send redirect_uri={pinned} (pinned by AERONA_OAUTH_REDIRECT_URI, and reused "
                     "verbatim when exchanging the code). Discord compares it character for character with "
                     "OAuth2 → Redirects in the portal: same scheme, same port, same trailing slash or none. Paste "
-                    "exactly this string, then press Save Changes — an added-but-unsaved entry does not exist."
+                    "exactly this string, then press Save Changes - an added-but-unsaved entry does not exist."
                 )
             else:
                 where = self.base_url if self.env.get("AERONA_BASE_URL") else "the origin in the browser's own address bar"
                 out.append(
                     f"Discord login derives its redirect_uri from {where}{DISCORD_CALLBACK_PATH}, so the portal needs "
-                    "one entry per address people actually type — `http://127.0.0.1:25154` and `http://localhost:25154` "
+                    "one entry per address people actually type - `http://127.0.0.1:25154` and `http://localhost:25154` "
                     "are two different origins to Discord, and a port change means a new entry. Set "
                     "AERONA_OAUTH_REDIRECT_URI to pin one string, and read it back on the panel's /login page or with "
                     "`aerona doctor` before blaming the bot."
@@ -380,7 +396,7 @@ def ensure_env_file(config: Config) -> Path | None:
                         "# actually browse to (a panel IP, a localhost tunnel). Set it as soon "
                         "as you have"
                     )
-                    lines.append("# a domain — Discord's OAuth callback and browser Origin checks then require the exact match.")
+                    lines.append("# a domain - Discord's OAuth callback and browser Origin checks then require the exact match.")
                     line = "AERONA_BASE_URL="
                 # Anything else was written deliberately; keep it.
             elif line.startswith("AERONA_MASTER_KEY="):
@@ -388,7 +404,7 @@ def ensure_env_file(config: Config) -> Path | None:
             elif line.startswith("AERONA_BOT=") and config.bot_off:
                 line = "AERONA_BOT=off"
             elif line.startswith("AERONA_TOKEN=") and config.bot_off:
-                line = "# AERONA_TOKEN= — not needed while AERONA_BOT=off"
+                line = "# AERONA_TOKEN= - not needed while AERONA_BOT=off"
             lines.append(line)
         text = "\n".join(lines) + "\n"
     else:
@@ -407,7 +423,7 @@ def ensure_env_file(config: Config) -> Path | None:
     log(
         "env",
         f"wrote {path} (chmod 600) from {template.name if template.is_file() else 'a built-in template'}, "
-        "with a generated AERONA_MASTER_KEY — fill in AERONA_TOKEN and restart",
+        "with a generated AERONA_MASTER_KEY - fill in AERONA_TOKEN and restart",
     )
     return path
 
@@ -490,7 +506,7 @@ def candidate_paths(stem: str, *, include_built: bool = True) -> list[Path]:
 def usable(path: Path) -> bool:
     """Is this a binary we can actually run? `--version` is the whole test: it catches a
     wrong-architecture ELF (Exec format error), a zip that lost its exec bit, a file that
-    is a symlink to nothing, and a build from a different major version — none of which a
+    is a symlink to nothing, and a build from a different major version - none of which a
     permission bit or a magic-number sniff would notice."""
     if not path.is_file():
         return False
@@ -506,7 +522,7 @@ def usable(path: Path) -> bool:
             log("bin", f"{path} is not executable and could not be fixed: {exc}", level="warn")
     if os.access(path, os.X_OK):
         try:
-            res = subprocess.run(  # noqa: S603 — our own path, our own file
+            res = subprocess.run(  # noqa: S603 - our own path, our own file
                 [str(path), "--version"],
                 cwd=str(ROOT),
                 stdout=subprocess.PIPE,
@@ -522,7 +538,7 @@ def usable(path: Path) -> bool:
         except OSError as exc:
             log(
                 "bin",
-                f"{path.name} cannot be run here ({exc.__class__.__name__}: {exc}) — this box needs a different binary",
+                f"{path.name} cannot be run here ({exc.__class__.__name__}: {exc}) - this box needs a different binary",
                 level="warn",
             )
         except subprocess.TimeoutExpired:
@@ -567,7 +583,7 @@ def cargo_binary() -> Path | None:
     A toolchain this launcher installed itself wins over one that merely happens to be on
     `PATH`. `toolchain_env()` points `RUSTUP_HOME` and `CARGO_HOME` at the local `.cache`
     directories, so a rustup shim picked up from elsewhere would look for its toolchains in
-    an empty local `rustup/` and die with "no installed targets" — a confusing failure for
+    an empty local `rustup/` and die with "no installed targets" - a confusing failure for
     the one user who was doing nothing wrong. A cargo already on `PATH` is still used when
     the launcher has not installed anything, which is the ordinary developer case.
     """
@@ -600,7 +616,7 @@ def download(url: str, dest: Path) -> bool:
     15 MB pull on a shared uplink. Returns False on any failure, with the reason logged."""
     try:
         request = urllib.request.Request(url, headers={"user-agent": "aerona-launcher/1"})
-        with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 — https constant
+        with urllib.request.urlopen(request, timeout=60) as response:  # noqa: S310 - https constant
             total = int(response.headers.get("content-length") or 0)
             dest.parent.mkdir(parents=True, exist_ok=True)
             done = 0
@@ -621,7 +637,7 @@ def download(url: str, dest: Path) -> bool:
         log("rust", f"if this box has no egress, install Rust yourself: curl {TOOLCHAIN_HINT} | sh", level="warn")
         return False
     if dest.stat().st_size < 500_000:
-        log("rust", f"{url} came back at {dest.stat().st_size} bytes — that is not a toolchain installer", level="error")
+        log("rust", f"{url} came back at {dest.stat().st_size} bytes - that is not a toolchain installer", level="error")
         dest.unlink(missing_ok=True)
         return False
     return True
@@ -633,7 +649,7 @@ def install_rust() -> Path | None:
 
     This is the whole reason `python3 main.py` works on a box with nothing on it. It is
     stdlib-only, it never touches anything outside the project, and it is skipped when
-    `AERONA_NO_AUTOINSTALL=1` — because on some hosts downloading a compiler at boot is
+    `AERONA_NO_AUTOINSTALL=1` - because on some hosts downloading a compiler at boot is
     exactly what the operator does not want, and then the right answer is the prebuilt
     binary in `bin/`, not a surprise 15 MB fetch.
     """
@@ -676,7 +692,7 @@ def install_rust() -> Path | None:
     ]
     log("rust", "running the rustup installer")
     if subprocess.run(cmd, cwd=str(root), env=env, check=False).returncode != 0:  # noqa: S603
-        log("rust", "the rustup installer failed — its output above says why", level="error")
+        log("rust", "the rustup installer failed - its output above says why", level="error")
         return None
     installer.unlink(missing_ok=True)
     if not cargo_bin.is_file():
@@ -690,6 +706,26 @@ def dashboard_needs_build(config: Config) -> bool:
     return not (config.static_dir / "index.html").is_file()
 
 
+def referenced_assets(static_dir: Path) -> list[str]:
+    """Every `assets/<file>` the shipped html tells the browser to fetch.
+
+    Only the two documents are read, not the whole bundle: the html is what the browser loads first,
+    and its links were written by the build that produced the files they name. React's own code talks
+    about `styleSheet.cssRules` and a scan of minified js would call that an asset.
+    """
+    names: set[str] = set()
+    for page in (static_dir / "index.html", static_dir / "shell.html"):
+        if not page.is_file():
+            continue
+        try:
+            text = page.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        for found in re.findall(r"assets/([A-Za-z0-9._~@!$&*()+;=:%-]+)", text):
+            names.add("assets/" + found)
+    return sorted(names)
+
+
 def build_dashboard(config: Config) -> int:
     """`npm run build` if npm is here, otherwise say what is missing and move on. A
     missing dashboard must never be a reason the API does not come up."""
@@ -701,7 +737,7 @@ def build_dashboard(config: Config) -> int:
         log(
             "build",
             "npm is not on PATH: skipping the dashboard. The archive ships a built one in "
-            "dashboard/dist — if yours is missing, re-extract the archive with its directories, "
+            "dashboard/dist - if yours is missing, re-extract the archive with its directories, "
             "or install node and run `npm --prefix dashboard run build`.",
             level="warn",
         )
@@ -712,7 +748,7 @@ def build_dashboard(config: Config) -> int:
             if (dashboard / "package-lock.json").is_file()
             else ["npm", "install", "--no-audit", "--no-fund"]
         )
-        log("build", "npm install (dashboard) — this needs network and a minute")
+        log("build", "npm install (dashboard) - this needs network and a minute")
         if subprocess.run(install, cwd=str(dashboard), check=False).returncode != 0:  # noqa: S607, S603
             log("build", "npm install failed; the dashboard was not built", level="error")
             return 1
@@ -745,7 +781,7 @@ def build_jobs(total_kib: int | None = None) -> str | None:
 
     Parallel rustc processes are what kills a small container: `serenity` alone sits near
     800 MB at release settings, so two of them on a 2 GB box with no swap does not build
-    slower — it builds *not at all*. The kernel kills the compile, cargo exits non-zero,
+    slower - it builds *not at all*. The kernel kills the compile, cargo exits non-zero,
     and an operator whose panel restarts on exit gets a crash loop instead of a bot.
     Cores are the wrong input for that trade; RAM is the right one. `AERONA_BUILD_JOBS`
     overrides (set it to `auto` to hand the decision back to cargo).
@@ -775,7 +811,7 @@ def cargo_build(config: Config, *, release: bool = True) -> int:
     if cargo is None:
         log(
             "build",
-            "no Rust toolchain and I could not install one — put a prebuilt "
+            "no Rust toolchain and I could not install one - put a prebuilt "
             f"`bin/aerona-{platform_tag()}{EXE}` next to this file and run me again",
             level="error",
         )
@@ -814,7 +850,7 @@ def ensure_runtime(
 ) -> tuple[str, list[str]]:
     """Return `(kind, argv-prefix)` for the thing `run` should start.
 
-    `kind` is `unified` (one process: dashboard + API + worker — what almost everybody
+    `kind` is `unified` (one process: dashboard + API + worker - what almost everybody
     wants), `legacy` (the two binaries, for a supervisor that owns restarts) or `none`.
     """
     if not force_build:
@@ -889,7 +925,7 @@ class Child:
         return self.proc is not None and self.proc.poll() is None
 
     def start(self) -> None:
-        self.proc = subprocess.Popen(  # noqa: S603 — argv is built from our own paths
+        self.proc = subprocess.Popen(  # noqa: S603 - argv is built from our own paths
             self.argv,
             cwd=str(ROOT),
             env=self.env,
@@ -927,7 +963,7 @@ class Child:
         try:
             self.proc.wait(timeout=5)
         except subprocess.TimeoutExpired:
-            log(self.name, "still running after SIGKILL — leaving it to init", level="warn")
+            log(self.name, "still running after SIGKILL - leaving it to init", level="warn")
 
     def note_exit(self, code: int | None) -> float:
         """How long to wait before restarting: exponential, reset once the process has
@@ -957,7 +993,7 @@ def port_is_free(port: int) -> bool:
 
 def run_binary_check(argv: list[str], config: Config, component: str, *, sub: str = "check") -> int:
     """Ask the binary itself. It runs PRAGMA integrity_check, prints the config summary
-    and the install id, and exits — so a corrupt WAL is found before a dashboard is
+    and the install id, and exits - so a corrupt WAL is found before a dashboard is
     exposed, and we never reimplement Rust's rules in python."""
     cmd = [*argv, sub]
     try:
@@ -1006,10 +1042,27 @@ def check(config: Config, *, require_dashboard: bool = True, doctor: bool = Fals
             )
             size = (config.static_dir / "index.html").stat().st_size
             log("check", f"dashboard: built ({size // 1024} KB shell, {routes} prerendered route file(s))")
+            # The bundle's own asset list, against the folder it is served from. A name with no file
+            # behind it is not a user's mistyped request - the html and the files come from the same
+            # build - so it means the deploy is half-there, which on a browser looks like a working
+            # site with pieces missing and leaves nothing in the server log at all.
+            wanted = referenced_assets(config.static_dir)
+            absent = [n for n in wanted if not (config.static_dir / n).is_file()]
+            if absent:
+                shown = ", ".join(absent[:4])
+                more = f" (+{len(absent) - 4} more)" if len(absent) > 4 else ""
+                log(
+                    "check",
+                    f"dashboard: {len(absent)} of {len(wanted)} asset(s) the html names are MISSING "
+                    f"from {config.static_dir}: {shown}{more} - copy dashboard/dist again",
+                    level="warn",
+                )
+            elif wanted:
+                log("check", f"dashboard: all {len(wanted)} asset(s) the html names are present")
         else:
             log(
                 "check",
-                f"dashboard: not built — the API will run api-only (looked in {config.static_dir})",
+                f"dashboard: not built - the API will run api-only (looked in {config.static_dir})",
                 level="warn",
             )
 
@@ -1019,7 +1072,7 @@ def check(config: Config, *, require_dashboard: bool = True, doctor: bool = Fals
         if size == 0:
             log(
                 "check",
-                f"{config.db} is an empty file — a half-created database. Delete it or point AERONA_DB elsewhere.",
+                f"{config.db} is an empty file - a half-created database. Delete it or point AERONA_DB elsewhere.",
                 level="error",
             )
             failures += 1
@@ -1054,7 +1107,7 @@ def api_opener() -> urllib.request.OpenerDirector:
 
     `urllib.request.urlopen` has no cookie jar: it drops `Set-Cookie`, so a
     session-then-call sequence would arrive at the second endpoint anonymous. The jar
-    lives for exactly one `api_with_session` call — this script is not a browser and
+    lives for exactly one `api_with_session` call - this script is not a browser and
     leaves no cookie file behind.
     """
     return urllib.request.build_opener(urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -1074,7 +1127,7 @@ def api_request(
     else does now: it carries one in, by cookie value or by API key.
 
     No `Origin` header, deliberately: the origin rule on mutations exists to stop a
-    *browser* on somebody else's site riding an operator's session, and a CLI is not that —
+    *browser* on somebody else's site riding an operator's session, and a CLI is not that -
     it authenticates with the cookie and the `x-aerona-csrf` value or with an API key.
     Sending an Origin here would mean guessing which origin the server counts as its own,
     and guessing wrong on a domain install means the launcher is 403'd by its own guard
@@ -1110,7 +1163,7 @@ def api_with_session(
     Two of them, in this order: `AERONA_SESSION` (the cookie value copied out of a signed-in
     browser) and `AERONA_API_KEY`. There is no third. Redeeming an on-disk pairing code used to
     be here; it went with the code, because a door a browser can walk through and a door a CLI
-    can walk through are the same door — and the product has exactly one, which is Discord.
+    can walk through are the same door - and the product has exactly one, which is Discord.
     """
     opener = api_opener()
     # Carried on the *first* call, not just the one that needs it: `/me` is what proves the
@@ -1126,8 +1179,8 @@ def api_with_session(
         return api_request(config, method, path, body=body, opener=opener, headers=sent)
     key = (config.env.get("AERONA_API_KEY") or "").strip()
     if key:
-        # `/keys*` is session-only by design — a leaked API key must not mint or revoke its
-        # siblings — so a key gets as far as the guild routes and no further.
+        # `/keys*` is session-only by design - a leaked API key must not mint or revoke its
+        # siblings - so a key gets as far as the guild routes and no further.
         if path.startswith("/keys"):
             raise ApiDown(
                 "the key routes need a dashboard session, not an API key: re-run with "
@@ -1138,8 +1191,8 @@ def api_with_session(
         return api_request(config, method, path, body=body, opener=opener, headers=sent)
     raise ApiDown(
         "no session for this call. Authorise in a browser at "
-        f"{config.origin}/login/ — Discord, and the account has to administer a server "
-        "in — then re-run with AERONA_SESSION=<the aerona_session cookie>, or put a key in "
+        f"{config.origin}/login/ - Discord, and the account has to administer a server "
+        "in - then re-run with AERONA_SESSION=<the aerona_session cookie>, or put a key in "
         "AERONA_API_KEY"
     )
 
@@ -1271,7 +1324,7 @@ def cmd_build(config: Config, args: argparse.Namespace) -> int:
         if unified is not None:
             log("build", f"nothing to do: {rel(unified)} is already here and runs")
             if dashboard_needs_build(config):
-                log("build", "the dashboard is missing, though — building just that")
+                log("build", "the dashboard is missing, though - building just that")
                 return build_dashboard(config)
             return 0
         legacy = find_legacy()
@@ -1284,7 +1337,7 @@ def cmd_build(config: Config, args: argparse.Namespace) -> int:
         return 1
     if dashboard_needs_build(config):
         return build_dashboard(config)
-    log("build", "dashboard already built — leaving it alone")
+    log("build", "dashboard already built - leaving it alone")
     return 0
 
 
@@ -1316,7 +1369,7 @@ def cmd_healthcheck(config: Config, _args: argparse.Namespace) -> int:
         log(
             "health",
             "api is serving but no worker has reported (last: %s) %s"
-            % (bot.get("reportingAt"), "— AERONA_BOT=off says that is intended" if worker_off else "— gateway trouble?"),
+            % (bot.get("reportingAt"), "- AERONA_BOT=off says that is intended" if worker_off else "- gateway trouble?"),
             level="warn" if worker_off else "error",
         )
         if not worker_off:
@@ -1341,7 +1394,7 @@ def cmd_key(config: Config, args: argparse.Namespace) -> int:
             if unknown:
                 log(
                     "key",
-                    f"unknown scope(s) {', '.join(unknown)} — expected any of {', '.join(KEY_SCOPES)}",
+                    f"unknown scope(s) {', '.join(unknown)} - expected any of {', '.join(KEY_SCOPES)}",
                     level="error",
                 )
                 return 2
@@ -1381,7 +1434,7 @@ def cmd_key(config: Config, args: argparse.Namespace) -> int:
             out_path.chmod(0o600)
             log("key", f"wrote {out_path} (chmod 600)")
         log("key", f"id={data.get('id')} hint={data.get('hint')} scopes={','.join(data.get('scopes', []))}")
-        log("key", data.get("warning", "store it now — this is the only time the full key exists"), level="warn")
+        log("key", data.get("warning", "store it now - this is the only time the full key exists"), level="warn")
     else:
         print(json.dumps(data, indent=2, sort_keys=True))
     return 0
@@ -1433,12 +1486,12 @@ def parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(
         prog="main.py",
         description="Aerona launcher: get a binary (prebuilt, or build it), then serve the dashboard and the Discord worker.",
-        epilog="Configuration is AERONA_* in the environment or .env — see .env.example.",
+        epilog="Configuration is AERONA_* in the environment or .env - see .env.example.",
     )
     ap.add_argument("--dev", action="store_true", help="debug profile, no release build required")
     ap.add_argument("--verbose", action="store_true", help="also log what the launcher decides, not just what the child says")
     # A panel's startup command is fixed text with no subcommand in it, so `main.py` with
-    # no arguments has to mean `run` — and it has to mean it with these defaults, which
+    # no arguments has to mean `run` - and it has to mean it with these defaults, which
     # is why they are set here as well as on the subparser.
     ap.set_defaults(
         func=cmd_run,
@@ -1477,7 +1530,7 @@ def parser() -> argparse.ArgumentParser:
     key.add_argument("--label", default="")
     # `default=None`, not `default=["read"]`: with `action="append"` argparse appends *to
     # the default object*, so `--scope read --scope moderate` would have produced
-    # ["read", "read", "moderate"] — a scope nobody asked for twice.
+    # ["read", "read", "moderate"] - a scope nobody asked for twice.
     key.add_argument("--scope", action="append", default=None, help="repeatable: read|moderate|config|tickets")
     key.add_argument(
         "--out",

@@ -2,7 +2,7 @@
  * A deliberately small router: a table of routes, the history API, and one context.
  *
  * It exists in this shape because the prerenderer has to walk it (`routes` is plain
- * data, not JSX) and because every page must supply `meta()` — a route without SEO
+ * data, not JSX) and because every page must supply `meta()` - a route without SEO
  * data is a build error here, not an oversight.
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react'
@@ -31,8 +31,8 @@ export type RouteDef = {
    * A pattern can match a path the product does not have: `/guild/<id>/:page/` accepts
    * `/guild/1234/notapage/`, and rendering that as a page is how a typo becomes an empty view
    * with a 200. Returning false here means "this route does not match after all", so the path
-   * falls through to the 404 document the API already serves, and `isKnownPath` — the link
-   * audit's oracle — agrees with the router rather than being a second opinion.
+   * falls through to the 404 document the API already serves, and `isKnownPath` - the link
+   * audit's oracle - agrees with the router rather than being a second opinion.
    */
   check?: (params: RouteParams) => boolean
   load: () => Promise<{ default: ComponentType<RouteProps> }>
@@ -57,7 +57,7 @@ export const routes: RouteDef[] = [
   // `/guild/123/tickets/`. Two patterns, not one per nav row, and the difference is the whole
   // page: a literal segment (`/guild/:guild/tickets/`) matches the URL but puts nothing in
   // `params`, while `pages/Guild.tsx` switches on `params.page`. That pair of facts is how every
-  // tab link came to rewrite the URL and re-render the overview — no error, no request, because
+  // tab link came to rewrite the URL and re-render the overview - no error, no request, because
   // the segment was never read, only matched. A *named* segment is what carries it.
   //
   // What the nav table still owns is which pages exist at all: `check` asks `pageFor`, so a row
@@ -196,7 +196,7 @@ export function RouterProvider({ children, initialPath }: { children: ReactNode;
   useEffect(() => {
     if (typeof document === 'undefined') return
     const m = matchRoute(path)
-    applyHead(m ? m.def.meta(m.params) : { path, kind: 'WebPage', title: 'Not found — Aerona', description: 'This page does not exist.' })
+    applyHead(m ? m.def.meta(m.params) : { path, kind: 'WebPage', title: 'Not found - Aerona', description: 'This page does not exist.' })
     if (!m) return
     document.getElementById('main')?.focus({ preventScroll: true })
     window.scrollTo({ top: 0, behavior: 'auto' })

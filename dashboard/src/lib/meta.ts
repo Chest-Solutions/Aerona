@@ -24,7 +24,7 @@ export type PageMeta = {
 export const HOME_CRUMB = { label: 'Aerona', href: '/' }
 
 /**
- * Canonical URLs end in a trailing slash, per the guidelines — but only for *pages*.
+ * Canonical URLs end in a trailing slash, per the guidelines - but only for *pages*.
  * A file keeps its name: `/og-image.jpg/` is a 404 on every static host, and a
  * prerender audit that resolves the URL catches it immediately (it did).
  */

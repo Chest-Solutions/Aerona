@@ -1,6 +1,6 @@
 //! Process-wide state for the gateway worker: the database handle, a clone of the
 //! serenity `Context` once it exists, and the small sliding windows the raid detector
-//! needs. Deliberately *not* a mirror of Discord — everything permanent lives in
+//! needs. Deliberately *not* a mirror of Discord - everything permanent lives in
 //! SQLite, so this can be thrown away at any moment.
 
 use std::collections::VecDeque;
@@ -94,7 +94,10 @@ pub struct BotState {
     /// Guilds the bot is a member of and is allowed to act in. Checked per event, in
     /// memory, so an unrelated server's traffic never reaches the database.
     pub managed: DashSet<Snowflake>,
-    /// `(guild, config_epoch)` — the trigger to drop cached settings and re-register
+    /// Guilds whose channels or roles changed since the last picker report. Drained by the status
+    /// loop, which is what keeps a settings form's channel list true without a REST call per event.
+    pub picker_dirty: DashSet<Snowflake>,
+    /// `(guild, config_epoch)` - the trigger to drop cached settings and re-register
     /// commands. Bumped by the API on every settings write.
     pub epochs: DashMap<Snowflake, i64>,
 
@@ -140,6 +143,7 @@ impl BotState {
             ctx: OnceLock::new(),
             last_sticky_edit: DashMap::new(),
             managed: DashSet::new(),
+            picker_dirty: DashSet::new(),
             epochs: DashMap::new(),
             joins: DashMap::new(),
             floods: DashMap::new(),

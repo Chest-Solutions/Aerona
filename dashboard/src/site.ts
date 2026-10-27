@@ -3,7 +3,7 @@
  *
  * There is no marketing site any more: an Aerona install *is* the dashboard, and these
  * values are what the document head, the manifest and the JSON-LD node are built from. The
- * `origin` is only used to assemble absolute URLs at prerender time — every link a browser
+ * `origin` is only used to assemble absolute URLs at prerender time - every link a browser
  * follows is relative, which is what lets the API serve the panel from whatever host the
  * operator typed without a rebuild.
  */

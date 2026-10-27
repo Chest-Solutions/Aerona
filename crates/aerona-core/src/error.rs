@@ -2,7 +2,7 @@
 //!
 //! Rule: internals get a precise, logged message; clients get a short, safe,
 //! stable code. We never echo database errors, file paths or dependency output
-//! to an unauthenticated caller — those are exactly the strings an attacker
+//! to an unauthenticated caller - those are exactly the strings an attacker
 //! uses to fingerprint a stack.
 
 use std::fmt;

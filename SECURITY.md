@@ -16,7 +16,7 @@ make each single failure survivable and legible.
 | API → Sightengine | message text, opt-in | HTTPS + basic auth; per-guild privacy flag redacts matched text before it leaves |
 
 Anyone who can run `main.py` or read `AERONA_DB` is root on this install: the install key,
-the pepper and the database live in the same directory tree. That is deliberate — Aerona is
+the pepper and the database live in the same directory tree. That is deliberate - Aerona is
 a single-tenant tool and encryption at rest would need a key stored somewhere with the same
 access. Treat the data directory as a secret.
 
@@ -25,7 +25,7 @@ access. Treat the data directory as a secret.
 * **API keys** are 256 bits of entropy, stored as `HMAC-SHA256(pepper, key)`. A database
   copy does not yield usable keys, and verification is a constant-time compare of a MAC,
   not a lookup by prefix. The plaintext is returned exactly once, at creation.
-* **The pepper** is `AERONA_MASTER_KEY`, or — when that is unset — `HKDF-SHA256` over the
+* **The pepper** is `AERONA_MASTER_KEY`, or - when that is unset - `HKDF-SHA256` over the
   bot token, so it is never a constant and never stored separately from a secret you
   already protect. A dashboard-only install (`AERONA_BOT=off`, no token) has neither, and
   deriving a pepper from the empty string would let anyone who read the source forge a
@@ -34,11 +34,11 @@ access. Treat the data directory as a secret.
   session, which is the point; a *truncated* `install.key` is refused at boot rather than
   re-rolled, because a silently rotating pepper looks exactly like a broken login.
 * **Sessions** are random 256-bit ids, `HttpOnly`, `SameSite=Lax`, `Secure` whenever the
-  base URL is HTTPS, 12-hour expiry, and revoked in the database on logout — the cookie is
+  base URL is HTTPS, 12-hour expiry, and revoked in the database on logout - the cookie is
   a claim about a row, not a capability.
 * **Sign-in is Discord, and only Discord.** There is no bootstrap credential. The dashboard
-  used to accept a single-use code printed on the console, and that code is gone — from the
-  router, the CLI and the page — because a second way in is a second way for someone else in,
+  used to accept a single-use code printed on the console, and that code is gone - from the
+  router, the CLI and the page - because a second way in is a second way for someone else in,
   and it bypassed the only answer that matters: what Discord says about your permissions.
   `finish_login` mints a session for an account that holds Manage Server (or Administrator) on a
   guild this install has seen, and stamps that list into `sessions.guild_grants` (schema v4);
@@ -69,8 +69,8 @@ access. Treat the data directory as a secret.
   get a much stricter bucket (0.1 rps) because they are where guessing happens.
 * **Same-origin for state changes, with one narrow, documented exception.** A mutating
   request must present an `Origin` that matches `AERONA_BASE_URL` (or `AERONA_CORS_ORIGINS`)
-  *and* the double-submit `X-Aerona-CSRF` header. When `AERONA_BASE_URL` was never set —
-  which is what a fresh install on an IP address looks like — the request's own `Host` is
+  *and* the double-submit `X-Aerona-CSRF` header. When `AERONA_BASE_URL` was never set -
+  which is what a fresh install on an IP address looks like - the request's own `Host` is
   accepted as its origin, but only when that host is an IP literal or `localhost`. The
   fallback exists because a browser cannot make a request whose `Host` is not the origin it
   dialled, and DNS rebinding (a hostile *name* that resolves to your box) is precisely the
@@ -92,7 +92,7 @@ access. Treat the data directory as a secret.
   source.
 * **Static serving refuses rather than guesses**: only `dashboard/dist` is a root, hidden
   path segments are 404 before any filesystem lookup, the path is resolved under that root
-  and traversal (`..`, encoded or not) cannot escape it, and there is no SPA catch-all — an
+  and traversal (`..`, encoded or not) cannot escape it, and there is no SPA catch-all - an
   unknown path under `Accept: text/html` gets the prerendered 404 page at status 404, and
   every other unknown path gets the JSON error envelope. A soft 200 for a nonexistent URL
   is a phishing affordance, not a convenience.
@@ -103,7 +103,7 @@ access. Treat the data directory as a secret.
 
 Every state change writes a row: actor type and id, the guild, the action, an optional
 target, the client IP, the JSON payload, and a hash chain over the sequence.
-`verify_audit_chain` recomputes it, and the dashboard exposes the result — so "the record
+`verify_audit_chain` recomputes it, and the dashboard exposes the result - so "the record
 was edited" is detectable, not merely assumed. Writes are best-effort *after* the action
 succeeded (a failed audit write is logged loudly but does not undo a legitimate
 moderation action); reads and verification are strict.
@@ -114,7 +114,7 @@ cannot grow into a legal problem.
 ## The Discord side
 
 * The worker is the only writer. Its effective power is whatever the guild granted the bot's
-  role — Aerona never asks for `Administrator`, and the dashboard says which permissions a
+  role - Aerona never asks for `Administrator`, and the dashboard says which permissions a
   feature needs (`MODERATE_MEMBERS`, `MANAGE_MESSAGES`, `MANAGE_CHANNELS`,
   `MANAGE_ROLES`, `KICK`/`BAN` as configured).
 * "Is this a moderator" is answered from the **guild's own configured role lists** (plus
@@ -129,7 +129,7 @@ cannot grow into a legal problem.
   messages survive; a minimum-age guard protects a bot's just-posted welcome or a
   moderator's announcement; and bulk deletion stops at the two-week Discord boundary
   instead of erroring.
-* A temporary ban is a row with an expiry and the worker unbans it — a ban that outlives
+* A temporary ban is a row with an expiry and the worker unbans it - a ban that outlives
   its stated duration is the most common way a moderation bot harms a user.
 * The softban is a real ban followed by an unban (Discord's only way to clear a member's
   recent messages); it is recorded as `soft: true` so the audit trail is not misleading.
@@ -153,7 +153,7 @@ cannot grow into a legal problem.
 * `privacy_redact` strips the matched span from the payload sent and from the stored event;
   matched text is never put in a Discord-visible message.
 * Verdicts are cached briefly per author and text hash to survive a copy-paste raid without
-  a request per message — violations are deliberately not cached, so repeat offenders keep
+  a request per message - violations are deliberately not cached, so repeat offenders keep
   accumulating strikes.
 
 ## Known limits, stated plainly
@@ -165,23 +165,23 @@ cannot grow into a legal problem.
   access is the root of trust, not this chain.
 * Session and ban revocation are eventual: Discord's own cache can delay a permission
   change, and a member removed from the moderator role may finish an in-flight action.
-* Deleting a message is best effort — Discord refuses after two weeks, and another client
+* Deleting a message is best effort - Discord refuses after two weeks, and another client
   can win the race. The audit row is the record of intent; the platform is not.
 * The dashboard renders guild-supplied names through React's escaping and never injects
   HTML, but a guild name is still untrusted display text; the API caps and cleans it
   (`security::clean`, 120 characters) before storage.
 * **Serving the dashboard over plain `http://` exposes what crosses it.** A game panel gives
   you one forwarded TCP port with nothing terminating TLS in front of it, so this is the
-  normal shape of an install, not a mistake — and `main.py` says so in its startup notes
+  normal shape of an install, not a mistake - and `main.py` says so in its startup notes
   rather than refusing to boot. What that leaves true: every API key creation response and the
   session cookie travel readable by anyone on the path, and the cookie carries no `Secure` flag
   until the origin is `https`. Take one of these instead for anything you care about:
   a Cloudflare Tunnel (outbound only, no inbound port, valid certificate), a proxy you control
-  with TLS — then set `AERONA_BASE_URL=https://…` and `AERONA_TRUSTED_PROXY=true` — or
+  with TLS - then set `AERONA_BASE_URL=https://…` and `AERONA_TRUSTED_PROXY=true` - or
   `ssh -L PORT:127.0.0.1:PORT` and browse the loopback address.
 * Absolute URLs the API hands a browser (the OAuth `redirect_uri`) are built from
   `AERONA_OAUTH_REDIRECT_URI` when it is set, otherwise from `AERONA_BASE_URL`, and only
-  otherwise from the request's own `Host` — and that last step only when the host is an IP
+  otherwise from the request's own `Host` - and that last step only when the host is an IP
   literal or `localhost`. It is never derived from a name the install was not configured
   with: a `Host` header an attacker controls, reflected into a `redirect_uri`, is how an
   authorization code ends up on their server. An install reached by an unconfigured name
@@ -189,7 +189,7 @@ cannot grow into a legal problem.
 * The `redirect_uri` sent to `/authorize` is the one stored with the PKCE `state` and replayed
   to the token endpoint, so the two halves of the exchange cannot be made to disagree by a hop
   in between. A state is single-use, bound to the address that started it, and tombstoned on
-  reuse or expiry — a redeemed code cannot be spent a second time.
+  reuse or expiry - a redeemed code cannot be spent a second time.
 * `GET /api/v1/status` is unauthenticated and therefore reports the redirect configuration only
   as far as it is the operator's own: `redirectUri` is echoed for `pinned` and `base-url`, and is
   `null` when the value is derived per request, because echoing a `Host`-derived string would make

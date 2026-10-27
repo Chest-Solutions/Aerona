@@ -2,13 +2,13 @@
 //!
 //! Shared foundation for the two Aerona binaries:
 //!
-//! * `aerona-bot` — the Discord gateway worker (moderation, tickets, stickies,
+//! * `aerona-bot` - the Discord gateway worker (moderation, tickets, stickies,
 //!   anti-raid, AI text filter).
-//! * `aerona-api` — the dashboard HTTP API mounted at `/api/v1` that also hosts
+//! * `aerona-api` - the dashboard HTTP API mounted at `/api/v1` that also hosts
 //!   the built dashboard.
 //!
-//! Everything that both sides need — configuration, the SQLite schema, domain
-//! models, crypto helpers, rate limiting — lives here so there is exactly one
+//! Everything that both sides need - configuration, the SQLite schema, domain
+//! models, crypto helpers, rate limiting - lives here so there is exactly one
 //! definition of every rule in the product.
 //!
 //! ## Design constraints
@@ -26,6 +26,7 @@
 // safety, so the crate opts out of `too_many_arguments` rather than fight it.
 #![allow(clippy::too_many_arguments)]
 
+pub mod cape;
 pub mod config;
 pub mod db;
 pub mod error;
@@ -35,6 +36,7 @@ pub mod ratelimit;
 pub mod security;
 pub mod text;
 pub mod time;
+pub mod transcript;
 
 /// Wire format version of the public API. Bump on breaking route changes; the
 /// dashboard refuses to run against a mismatched backend.

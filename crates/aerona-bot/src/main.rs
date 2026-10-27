@@ -1,4 +1,4 @@
-//! `aerona-bot` — the gateway worker, as its own process.
+//! `aerona-bot` - the gateway worker, as its own process.
 //!
 //! This is the split-process entry point: use it when something else (systemd, docker,
 //! your own supervisor) is going to keep two children alive and you want a Discord outage
@@ -55,7 +55,7 @@ async fn run(root: &Path, dev: bool, args: &[String]) -> Result<(), Error> {
     // anyway would mean connecting with no token, so say what to run instead.
     if !cfg.bot_enabled {
         return Err(Error::Config(
-            "this is the gateway worker but AERONA_BOT=off — run `aerona` (dashboard and \
+            "this is the gateway worker but AERONA_BOT=off - run `aerona` (dashboard and \
              worker in one process) or `aerona-api` for the dashboard alone"
                 .into(),
         ));

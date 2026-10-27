@@ -3,7 +3,7 @@
  *
  * The list is not read from this build: it is what the worker last got back from Discord after
  * `set_commands`, with the time it asked. So the page can say "12 commands, 4 min ago" and be
- * right about a server where somebody disabled four of them an hour ago — and when the worker
+ * right about a server where somebody disabled four of them an hour ago - and when the worker
  * has never reported, the page says that instead of showing a list it invented.
  */
 import { useState } from 'react'
@@ -33,7 +33,7 @@ export default function Commands() {
     setBusy(true)
     try {
       await syncCommands(id)
-      toast.success('Queued — the bot re-registers them on its next beat.')
+      toast.success('Queued - the bot re-registers them on its next beat.')
       setTimeout(reload, 2500)
     } catch (e) {
       toast.error(e instanceof ApiError ? e.message : 'The API did not answer.')
@@ -57,7 +57,6 @@ export default function Commands() {
     <div className="grid gap-5">
       <PageHeader
         title="Commands"
-        hint="Guild-scoped, so they appear the moment they are written."
         actions={
           <Button size="sm" variant="outline" onClick={sync} disabled={busy}>
             <motion.span

@@ -65,7 +65,7 @@ pub fn assets(cfg: &Config) -> Option<app::StaticAssets> {
 ///
 /// `shutdown` is the caller's business: `aerona-api` waits for its own signal, the
 /// unified binary waits for a shared stop handle. By the time it resolves, draining has
-/// already been given its `DRAIN_SECS`, which is what the caller sleeps for — axum keeps
+/// already been given its `DRAIN_SECS`, which is what the caller sleeps for - axum keeps
 /// answering requests until then, so a browser tab that was mid-request finishes.
 pub async fn start(
     state: AppState,
@@ -143,7 +143,7 @@ mod tests {
     use super::*;
 
     /// `report` is what an operator reads when nothing works, so it must never be the
-    /// thing that fails — and it must never contain a secret.
+    /// thing that fails - and it must never contain a secret.
     #[test]
     fn report_never_leaks_a_secret() {
         let dir = tempfile::tempdir().unwrap();

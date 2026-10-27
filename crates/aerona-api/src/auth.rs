@@ -289,7 +289,7 @@ fn auth_reject(e: Error) -> Error {
 
 /// Double-submit CSRF: the value must equal the session's own secret. A cross-site
 /// form can send the cookie (browser-managed) but cannot read the secret, so it
-/// cannot produce this header. API keys are exempt — they are never sent by a
+/// cannot produce this header. API keys are exempt - they are never sent by a
 /// browser automatically, which is why the dashboard's fetch also uses `SameSite`.
 pub fn check_csrf(state: &AppState, headers: &HeaderMap) -> Result<()> {
     let cookie = match cookie_value(headers, SESSION_COOKIE) {
@@ -365,14 +365,14 @@ pub fn header_str<'a>(headers: &'a HeaderMap, name: &str) -> Option<&'a str> {
 }
 
 /// Best-effort client address. Behind a reverse proxy the socket peer is `127.0.0.1`,
-/// so `X-Forwarded-For` is the only useful value — but it is attacker-controlled
+/// so `X-Forwarded-For` is the only useful value - but it is attacker-controlled
 /// unless the operator says a proxy sits in front, hence the explicit opt-in.
 /// The address to bill and to log.
 ///
 /// `X-Forwarded-For` is believed only when the operator said a proxy sits in front
 /// (`AERONA_TRUSTED_PROXY`); otherwise the socket peer is the only source that cannot
 /// be forged. `peer` comes from `ConnectInfo`, which is why both the real server and
-/// the test harness serve through `into_make_service_with_connect_info` — without it
+/// the test harness serve through `into_make_service_with_connect_info` - without it
 /// every client would share one rate-limit bucket and every audit row would be
 /// anonymous.
 pub fn client_ip(headers: &HeaderMap, trusted_proxy: bool, peer: Option<SocketAddr>) -> String {
@@ -405,8 +405,8 @@ pub fn check_origin(state: &AppState, headers: &HeaderMap) -> Result<()> {
     if state.cfg.allows_origin(&origin) {
         return Ok(());
     }
-    // The same-host fallback, which is what makes an install reached by IP:port —
-    // a game panel, a VPS before anybody points a domain at it — usable while
+    // The same-host fallback, which is what makes an install reached by IP:port -
+    // a game panel, a VPS before anybody points a domain at it - usable while
     // `AERONA_BASE_URL` is still unset. It accepts only an IP literal or
     // `localhost`, and it is never the only line of defence: `check_csrf` still
     // demands the double-submit header, which an attacker's page cannot read.
@@ -423,7 +423,7 @@ pub fn check_origin(state: &AppState, headers: &HeaderMap) -> Result<()> {
         }
     }
     Err(Error::Forbidden(
-        "cross-origin request blocked — if this is your own dashboard, set AERONA_BASE_URL \
+        "cross-origin request blocked - if this is your own dashboard, set AERONA_BASE_URL \
          to the URL your browser uses (see .env.example)",
     ))
 }
@@ -550,8 +550,8 @@ mod tests {
     }
 
     /// The game-panel case: nobody set `AERONA_BASE_URL`, and the browser dialled an IP
-    /// with a port. Without reading the request's own `Host`, every mutation — the
-    /// pairing login included — is a 403 forever.
+    /// with a port. Without reading the request's own `Host`, every mutation - the
+    /// pairing login included - is a 403 forever.
     #[test]
     fn an_install_that_never_named_its_origin_accepts_its_own_host() {
         let state = state_at(&[]);
@@ -569,7 +569,7 @@ mod tests {
             state.cfg.base_url
         );
 
-        // A name that merely happens to resolve to this box is not the same thing — that
+        // A name that merely happens to resolve to this box is not the same thing - that
         // is DNS rebinding, and it is why the fallback is limited to IPs and localhost.
         let rebind = headers(&[
             ("origin", "http://evil.example:25565"),

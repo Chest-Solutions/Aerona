@@ -10,41 +10,70 @@ use serde_json::json;
 
 use crate::error::{Error, Result};
 use crate::identity::Snowflake;
-use crate::models::StickyRecord;
+use crate::models::{StickyDraft, StickyRecord};
 
 use super::{now, Db};
 
+/// The column list every sticky read shares, so a new column cannot be selected by one query and
+/// forgotten by another. `sticky_from_row` reads these in this order.
+const STICKY_COLS: &str = "id, guild_id, channel_id, message_id, sticky_message_id, content,
+                     every_messages, since_count, created_by, created_at, last_run_at,
+                     embed_title, embed_body, embed_color";
+
 impl Db {
-    pub fn add_sticky(
-        &self,
-        guild: Snowflake,
-        channel: Snowflake,
-        message: Snowflake,
-        content: &str,
-        every: u32,
-        author: Snowflake,
-    ) -> Result<i64> {
-        let content = crate::security::clean(content, 1800);
-        if content.is_empty() {
-            return Err(Error::Invalid("a sticky needs content".into()));
+    /// Add, or re-add, one sticky.
+    ///
+    /// An anchored sticky (`message_id != 0`) replaces the previous row for the same message, so
+    /// pointing at the same post twice updates it instead of stacking. An unanchored one is a new
+    /// note every time: it has no message to be the same as, and a dashboard that says "add"
+    /// twice means two stickies.
+    pub fn add_sticky(&self, draft: &StickyDraft) -> Result<i64> {
+        let d = draft.clone();
+        // `scrub_block`, not `clean`: the lines a note is written with are part of the note.
+        let content = crate::security::scrub_block(&d.content, 1800);
+        let embed_title = d
+            .embed_title
+            .as_deref()
+            .map(|t| crate::security::clean(t, 240))
+            .filter(|t| !t.is_empty());
+        let embed_body = d
+            .embed_body
+            .as_deref()
+            .map(|t| crate::security::scrub_block(t, 1800))
+            .filter(|t| !t.is_empty());
+        if content.is_empty() && embed_title.is_none() && embed_body.is_none() {
+            return Err(Error::Invalid(
+                "a sticky needs text, an embed, or both".into(),
+            ));
         }
         let (g, c, m, a) = (
-            guild.as_i64(),
-            channel.as_i64(),
-            message.as_i64(),
-            author.as_i64(),
+            d.guild_id.as_i64(),
+            d.channel_id.as_i64(),
+            d.message_id.as_i64(),
+            d.author.as_i64(),
         );
-        let every = (every.clamp(1, 1000)) as i64;
+        let every = (d.every_messages.clamp(1, 1000)) as i64;
+        let color = d.embed_color.map(|v| (v & 0xff_ff_ff) as i64);
         let at = now();
         self.tx(move |conn| {
             conn.execute(
-                "INSERT INTO sticky_messages(guild_id,channel_id,message_id,content,every_messages,since_count,created_by,created_at,enabled)
-                 VALUES(?1,?2,?3,?4,?5,0,?6,?7,1)
-                 ON CONFLICT(guild_id, message_id) DO UPDATE
-                   SET content=excluded.content, every_messages=excluded.every_messages, enabled=1",
-                params![g, c, m, content, every, a, at],
+                "INSERT INTO sticky_messages(guild_id,channel_id,message_id,content,every_messages,since_count,created_by,created_at,enabled,embed_title,embed_body,embed_color)
+                 VALUES(?1,?2,?3,?4,?5,0,?6,?7,1,?8,?9,?10)
+                 ON CONFLICT(guild_id, message_id) WHERE message_id != 0 DO UPDATE
+                   SET content=excluded.content, every_messages=excluded.every_messages,
+                       embed_title=excluded.embed_title, embed_body=excluded.embed_body,
+                       embed_color=excluded.embed_color, enabled=1",
+                params![g, c, m, content, every, a, at, embed_title, embed_body, color],
             )?;
-            Ok(conn.query_row("SELECT id FROM sticky_messages WHERE guild_id=?1 AND message_id=?2", params![g, m], |r| r.get::<_, i64>(0)).unwrap_or(0))
+            if m == 0 {
+                return Ok(conn.last_insert_rowid());
+            }
+            conn.query_row(
+                "SELECT id FROM sticky_messages WHERE guild_id=?1 AND message_id=?2",
+                params![g, m],
+                |r| r.get::<_, i64>(0),
+            )
+            .map_err(Error::db)
         })
     }
 
@@ -56,7 +85,7 @@ impl Db {
         let (g, c) = (guild.as_i64(), channel.as_i64());
         self.read(move |conn| {
             let mut st = conn
-                .prepare("SELECT id, guild_id, channel_id, message_id, sticky_message_id, content, every_messages, since_count, created_by, created_at, last_run_at FROM sticky_messages WHERE guild_id=?1 AND channel_id=?2 AND enabled=1 ORDER BY id")
+                .prepare(&format!("SELECT {STICKY_COLS} FROM sticky_messages WHERE guild_id=?1 AND channel_id=?2 AND enabled=1 ORDER BY id"))
                 .map_err(Error::db)?;
             let rows = st.query_map(params![g, c], sticky_from_row).map_err(Error::db)?;
             rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Error::db)
@@ -67,14 +96,14 @@ impl Db {
         let g = guild.as_i64();
         self.read(move |conn| {
             let mut st = conn
-                .prepare("SELECT id, guild_id, channel_id, message_id, sticky_message_id, content, every_messages, since_count, created_by, created_at, last_run_at FROM sticky_messages WHERE guild_id=?1 AND enabled=1 ORDER BY channel_id, id")
+                .prepare(&format!("SELECT {STICKY_COLS} FROM sticky_messages WHERE guild_id=?1 AND enabled=1 ORDER BY channel_id, id"))
                 .map_err(Error::db)?;
             let rows = st.query_map(params![g], sticky_from_row).map_err(Error::db)?;
             rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Error::db)
         })
     }
 
-    /// One indexed UPDATE for the whole channel — the hot path runs on every
+    /// One indexed UPDATE for the whole channel - the hot path runs on every
     /// message, so it must not do a read-modify-write per sticky.
     pub fn bump_stickies(&self, guild: Snowflake, channel: Snowflake) -> Result<()> {
         let (g, c) = (guild.as_i64(), channel.as_i64());
@@ -93,12 +122,12 @@ impl Db {
         let (g, c) = (guild.as_i64(), channel.as_i64());
         self.read(move |conn| {
             let mut st = conn
-                .prepare(
-                    "SELECT id, guild_id, channel_id, message_id, sticky_message_id, content, every_messages, since_count, created_by, created_at, last_run_at
+                .prepare(&format!(
+                    "SELECT {STICKY_COLS}
                      FROM sticky_messages
                      WHERE guild_id=?1 AND channel_id=?2 AND enabled=1 AND since_count >= every_messages
-                     ORDER BY id LIMIT 8",
-                )
+                     ORDER BY id LIMIT 8"
+                ))
                 .map_err(Error::db)?;
             let rows = st.query_map(params![g, c], sticky_from_row).map_err(Error::db)?;
             rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Error::db)
@@ -203,6 +232,37 @@ impl Db {
         })
     }
 
+    /// The newest messages the bot still holds text for, oldest of them last. This is what a
+    /// picker on the panel shows, so that "pin the message that says read the rules" is a click on
+    /// a sentence rather than a hunt for a 19-digit number in developer mode.
+    ///
+    /// It reads the same cache the logger quotes edits from, so its size is the guild's own
+    /// "remember messages for" setting: nobody configures a second window for the panel.
+    pub fn recent_messages(&self, guild: Snowflake, limit: u32) -> Result<Vec<serde_json::Value>> {
+        let g = guild.as_i64();
+        let cap = i64::from(limit.clamp(1, 500));
+        self.read(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT message_id, channel_id, author_id, content, at FROM log_messages
+                 WHERE guild_id=?1 AND kind='message'
+                 ORDER BY id DESC LIMIT ?2",
+            )?;
+            let rows = stmt
+                .query_map(params![g, cap], |r| {
+                    Ok(json!({
+                        "id": r.get::<_, i64>(0)?.to_string(),
+                        "channelId": r.get::<_, i64>(1)?.to_string(),
+                        "authorId": r.get::<_, i64>(2)?.to_string(),
+                        "content": r.get::<_, String>(3)?,
+                        "at": r.get::<_, i64>(4)?,
+                    }))
+                })?
+                .filter_map(std::result::Result::ok)
+                .collect();
+            Ok(rows)
+        })
+    }
+
     pub fn forget_message(&self, guild: Snowflake, message: Snowflake) -> Result<()> {
         let (g, m) = (guild.as_i64(), message.as_i64());
         self.tx(move |conn| {
@@ -250,6 +310,9 @@ fn sticky_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<StickyRecord> {
         created_by: Snowflake(r.get::<_, i64>(8)? as u64),
         created_at: r.get(9)?,
         last_run_at: r.get(10)?,
+        embed_title: r.get(11)?,
+        embed_body: r.get(12)?,
+        embed_color: r.get::<_, Option<i64>>(13)?.map(|v| v as u32),
     })
 }
 
@@ -274,6 +337,27 @@ mod tests {
     use crate::db::testutil::temp_db;
 
     const G: i64 = 900;
+
+    /// Every test that needs a sticky seeds an anchored one with no embed: that is what `!sticky`
+    /// makes, and the dashboard's richer form is the same row with more fields set.
+    fn draft(
+        guild: Snowflake,
+        channel: Snowflake,
+        message: Snowflake,
+        content: &str,
+        every: u32,
+        author: Snowflake,
+    ) -> StickyDraft {
+        StickyDraft {
+            guild_id: guild,
+            channel_id: channel,
+            message_id: message,
+            content: content.into(),
+            every_messages: every,
+            author,
+            ..Default::default()
+        }
+    }
     fn seed(db: &Db) {
         db.tx(|c| {
             c.execute(
@@ -293,14 +377,14 @@ mod tests {
         let (db, _d) = temp_db();
         seed(&db);
         let id = db
-            .add_sticky(
+            .add_sticky(&draft(
                 g(),
                 Snowflake(1),
                 Snowflake(11),
                 "read the rules",
                 3,
                 Snowflake(2),
-            )
+            ))
             .unwrap();
         assert!(id > 0);
         assert!(
@@ -338,10 +422,24 @@ mod tests {
     fn scope_is_per_guild_and_per_channel() {
         let (db, _d) = temp_db();
         seed(&db);
-        db.add_sticky(g(), Snowflake(1), Snowflake(11), "a", 1, Snowflake(2))
-            .unwrap();
-        db.add_sticky(g(), Snowflake(2), Snowflake(12), "b", 1, Snowflake(2))
-            .unwrap();
+        db.add_sticky(&draft(
+            g(),
+            Snowflake(1),
+            Snowflake(11),
+            "a",
+            1,
+            Snowflake(2),
+        ))
+        .unwrap();
+        db.add_sticky(&draft(
+            g(),
+            Snowflake(2),
+            Snowflake(12),
+            "b",
+            1,
+            Snowflake(2),
+        ))
+        .unwrap();
         db.tx(|c| {
             c.execute(
                 "INSERT INTO guilds(id,name,updated_at) VALUES(901,'other',0)",
@@ -350,14 +448,14 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        db.add_sticky(
+        db.add_sticky(&draft(
             Snowflake(901),
             Snowflake(1),
             Snowflake(13),
             "c",
             1,
             Snowflake(2),
-        )
+        ))
         .unwrap();
         assert_eq!(db.stickies_for_channel(g(), Snowflake(1)).unwrap().len(), 1);
         assert_eq!(db.stickies_for_guild(g()).unwrap().len(), 2);
@@ -374,10 +472,24 @@ mod tests {
         let (db, _d) = temp_db();
         seed(&db);
         let a = db
-            .add_sticky(g(), Snowflake(1), Snowflake(11), "first", 5, Snowflake(2))
+            .add_sticky(&draft(
+                g(),
+                Snowflake(1),
+                Snowflake(11),
+                "first",
+                5,
+                Snowflake(2),
+            ))
             .unwrap();
         let b = db
-            .add_sticky(g(), Snowflake(1), Snowflake(11), "second", 9, Snowflake(2))
+            .add_sticky(&draft(
+                g(),
+                Snowflake(1),
+                Snowflake(11),
+                "second",
+                9,
+                Snowflake(2),
+            ))
             .unwrap();
         assert_eq!(a, b, "re-adding the same message must update in place");
         let rows = db.stickies_for_guild(g()).unwrap();
@@ -391,18 +503,39 @@ mod tests {
         let (db, _d) = temp_db();
         seed(&db);
         assert!(db
-            .add_sticky(g(), Snowflake(1), Snowflake(11), "   ", 5, Snowflake(2))
+            .add_sticky(&draft(
+                g(),
+                Snowflake(1),
+                Snowflake(11),
+                "   ",
+                5,
+                Snowflake(2),
+            ))
             .is_err());
         let id = db
-            .add_sticky(g(), Snowflake(1), Snowflake(11), "x", 0, Snowflake(2))
+            .add_sticky(&draft(
+                g(),
+                Snowflake(1),
+                Snowflake(11),
+                "x",
+                0,
+                Snowflake(2),
+            ))
             .unwrap();
         assert_eq!(
             db.stickies_for_guild(g()).unwrap()[0].every_messages,
             1,
             "interval 0 would spam"
         );
-        db.add_sticky(g(), Snowflake(1), Snowflake(11), "y", 100_000, Snowflake(2))
-            .unwrap();
+        db.add_sticky(&draft(
+            g(),
+            Snowflake(1),
+            Snowflake(11),
+            "y",
+            100_000,
+            Snowflake(2),
+        ))
+        .unwrap();
         assert_eq!(
             db.stickies_for_guild(g()).unwrap()[0].every_messages,
             1000,
@@ -416,10 +549,24 @@ mod tests {
     fn channel_deletion_clears_stickies() {
         let (db, _d) = temp_db();
         seed(&db);
-        db.add_sticky(g(), Snowflake(1), Snowflake(11), "a", 1, Snowflake(2))
-            .unwrap();
-        db.add_sticky(g(), Snowflake(1), Snowflake(12), "b", 1, Snowflake(2))
-            .unwrap();
+        db.add_sticky(&draft(
+            g(),
+            Snowflake(1),
+            Snowflake(11),
+            "a",
+            1,
+            Snowflake(2),
+        ))
+        .unwrap();
+        db.add_sticky(&draft(
+            g(),
+            Snowflake(1),
+            Snowflake(12),
+            "b",
+            1,
+            Snowflake(2),
+        ))
+        .unwrap();
         assert_eq!(
             db.delete_stickies_for_channel(g(), Snowflake(1)).unwrap(),
             2
@@ -489,14 +636,197 @@ mod tests {
         let (db, _d) = temp_db();
         seed(&db);
         assert_eq!(sticky_tile(&db, g()).unwrap()["stickies"], 0);
-        db.add_sticky(g(), Snowflake(1), Snowflake(11), "a", 1, Snowflake(2))
-            .unwrap();
-        db.add_sticky(g(), Snowflake(1), Snowflake(12), "b", 1, Snowflake(2))
-            .unwrap();
-        db.add_sticky(g(), Snowflake(2), Snowflake(13), "c", 1, Snowflake(2))
-            .unwrap();
+        db.add_sticky(&draft(
+            g(),
+            Snowflake(1),
+            Snowflake(11),
+            "a",
+            1,
+            Snowflake(2),
+        ))
+        .unwrap();
+        db.add_sticky(&draft(
+            g(),
+            Snowflake(1),
+            Snowflake(12),
+            "b",
+            1,
+            Snowflake(2),
+        ))
+        .unwrap();
+        db.add_sticky(&draft(
+            g(),
+            Snowflake(2),
+            Snowflake(13),
+            "c",
+            1,
+            Snowflake(2),
+        ))
+        .unwrap();
         let t = sticky_tile(&db, g()).unwrap();
         assert_eq!(t["stickies"], 3);
         assert_eq!(t["channels"], 2);
+    }
+
+    #[test]
+    fn unanchored_stickies_stack_and_embeds_round_trip() {
+        let (db, _d) = temp_db();
+        seed(&db);
+        let mk = |text: &str, title: &str| StickyDraft {
+            guild_id: g(),
+            channel_id: Snowflake(4),
+            message_id: Snowflake(0),
+            content: text.into(),
+            embed_title: (!title.is_empty()).then(|| title.to_string()),
+            embed_body: (!title.is_empty()).then(|| "line one\nline two".into()),
+            embed_color: (!title.is_empty()).then_some(0xff_00_00),
+            every_messages: 1,
+            author: Snowflake(2),
+        };
+        let a = db.add_sticky(&mk("", "Rules")).unwrap();
+        let b = db.add_sticky(&mk("read them", "")).unwrap();
+        assert_ne!(a, b, "two stickies with no anchor are two stickies");
+        let rows = db.stickies_for_channel(g(), Snowflake(4)).unwrap();
+        assert_eq!(rows.len(), 2);
+        let with_embed = rows.iter().find(|r| r.id == a).unwrap();
+        assert!(
+            !with_embed.anchored(),
+            "message id 0 is the no-anchor marker"
+        );
+        assert!(with_embed.has_embed());
+        assert_eq!(with_embed.embed_body.as_deref(), Some("line one\nline two"));
+        assert_eq!(with_embed.color(), 0xff_00_00);
+        let plain = rows.iter().find(|r| r.id == b).unwrap();
+        assert!(!plain.has_embed(), "text alone is not an embed");
+        assert_eq!(
+            plain.color(),
+            0x58_65_F2,
+            "and it borrows blurple, not black"
+        );
+
+        // Both halves are optional; neither is an excuse for an empty row.
+        assert!(db
+            .add_sticky(&StickyDraft {
+                embed_body: None,
+                ..mk("   ", "   ")
+            })
+            .is_err());
+        assert!(db
+            .add_sticky(&StickyDraft {
+                content: "  ".into(),
+                embed_body: Some("  ".into()),
+                ..mk("", "")
+            })
+            .is_err());
+    }
+
+    #[test]
+    fn the_same_anchor_still_updates_and_an_unanchored_row_never_hijacks_it() {
+        let (db, _d) = temp_db();
+        seed(&db);
+        let id = db
+            .add_sticky(&draft(
+                g(),
+                Snowflake(7),
+                Snowflake(70),
+                "first",
+                5,
+                Snowflake(2),
+            ))
+            .unwrap();
+        db.add_sticky(&draft(
+            g(),
+            Snowflake(7),
+            Snowflake(70),
+            "second",
+            9,
+            Snowflake(2),
+        ))
+        .unwrap();
+        let rows = db.stickies_for_channel(g(), Snowflake(7)).unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "an anchored message is re-added, not duplicated"
+        );
+        assert_eq!(rows[0].content, "second");
+        assert_eq!(rows[0].id, id);
+        // The same channel, no anchor: the row above must not be mistaken for this one.
+        db.add_sticky(&StickyDraft {
+            guild_id: g(),
+            channel_id: Snowflake(7),
+            message_id: Snowflake(0),
+            content: "authored here".into(),
+            every_messages: 3,
+            author: Snowflake(2),
+            ..Default::default()
+        })
+        .unwrap();
+        let rows = db.stickies_for_channel(g(), Snowflake(7)).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert!(rows
+            .iter()
+            .any(|r| r.content == "authored here" && !r.anchored()));
+        assert!(rows.iter().any(|r| r.content == "second" && r.anchored()));
+    }
+
+    /// A note is written on lines, and the lines are the note. `clean` folds them, which is right
+    /// for a label and wrong here; `scrub_block` keeps them and caps what one message can carry.
+    #[test]
+    fn a_note_keeps_its_lines_and_is_still_bounded() {
+        let (db, _d) = temp_db();
+        seed(&db);
+        let text = (1..=25)
+            .map(|i| format!("line {i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let id = db
+            .add_sticky(&draft(
+                g(),
+                Snowflake(7),
+                Snowflake(0),
+                &text,
+                20,
+                Snowflake(2),
+            ))
+            .unwrap();
+        let rows = db.stickies_for_guild(g()).unwrap();
+        let row = rows
+            .iter()
+            .find(|r| r.id == id)
+            .expect("the row just added");
+        assert!(
+            row.content.starts_with("line 1\nline 2\n"),
+            "{:?}",
+            row.content
+        );
+        assert!(
+            row.content.lines().count() <= 20,
+            "{} lines is more than a note",
+            row.content.lines().count()
+        );
+        assert!(
+            !row.content.contains("line 25"),
+            "the tail is cut, not the shape"
+        );
+
+        // A control character is not formatting: it goes, and the next line survives.
+        let id2 = db
+            .add_sticky(&draft(
+                g(),
+                Snowflake(8),
+                Snowflake(0),
+                "one\u{7}two\nthree",
+                20,
+                Snowflake(2),
+            ))
+            .unwrap();
+        let row2 = db
+            .stickies_for_guild(g())
+            .unwrap()
+            .into_iter()
+            .find(|r| r.id == id2)
+            .unwrap();
+        assert_eq!(row2.content, "one two\nthree", "{:?}", row2.content);
     }
 }

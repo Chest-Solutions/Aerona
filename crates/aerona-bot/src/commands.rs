@@ -1,6 +1,6 @@
 //! Commands, in both dialects. A prefix command and its slash equivalent call the same
 //! function with the same arguments, so a guild that has disabled `!` commands loses the
-//! transport and not the behaviour — and the two can never disagree about permissions.
+//! transport and not the behaviour - and the two can never disagree about permissions.
 
 use serde_json::Value;
 use serenity::all::{
@@ -12,6 +12,7 @@ use aerona_core::models::{GuildSettings, ModConfig, StrikeAction};
 use aerona_core::time::now;
 
 use crate::clamp_chars;
+use crate::notify::{self, Action, Kind};
 use crate::state::{BotState, Rate};
 
 /// Who is asking, and whether they may. Computed by the caller from the message's own
@@ -67,6 +68,20 @@ pub const SPECS: &[Spec] = &[
         permission: Permission::Staff,
         description: "Warn a member and count a strike",
         args: "ut",
+        staff_only: true,
+    },
+    Spec {
+        name: "freeze",
+        permission: Permission::Admin,
+        description: "Slow every channel down. Stops a raid in seconds",
+        args: "n",
+        staff_only: true,
+    },
+    Spec {
+        name: "unfreeze",
+        permission: Permission::Admin,
+        description: "Release a freeze without waiting for the timer",
+        args: "",
         staff_only: true,
     },
     Spec {
@@ -183,6 +198,24 @@ pub const SPECS: &[Spec] = &[
     },
 ];
 
+/// What Discord itself requires before it will even show a staff command in a member's `/` list.
+///
+/// It used to be `MANAGE_MESSAGES` alone, which is narrower than the gate that actually runs the
+/// command: a server whose moderator role has `Moderate Members` (or a custom set with `Kick
+/// Members`) passed `Actor::need_staff` in `!warn` and could see no `/warn` to type. Listing the
+/// permissions our own gate accepts is what keeps the two answers the same, and it is also the
+/// reason a locked-down server saw no commands at all: the members who needed them were the ones
+/// the old mask hid them from.
+pub const STAFF_SLASH_PERMS: serenity::all::Permissions =
+    serenity::all::Permissions::from_bits_truncate(
+        serenity::all::Permissions::MANAGE_MESSAGES.bits()
+            | serenity::all::Permissions::MODERATE_MEMBERS.bits()
+            | serenity::all::Permissions::KICK_MEMBERS.bits()
+            | serenity::all::Permissions::BAN_MEMBERS.bits()
+            | serenity::all::Permissions::MANAGE_ROLES.bits()
+            | serenity::all::Permissions::ADMINISTRATOR.bits(),
+    );
+
 pub fn spec(name: &str) -> Option<&'static Spec> {
     SPECS.iter().find(|s| s.name == name)
 }
@@ -194,7 +227,7 @@ pub fn slash_definitions(enabled: &std::collections::HashSet<String>) -> Vec<Cre
         .map(|s| {
             let mut cmd = CreateCommand::new(s.name).description(s.description);
             if s.staff_only {
-                cmd = cmd.default_member_permissions(serenity::all::Permissions::MANAGE_MESSAGES);
+                cmd = cmd.default_member_permissions(STAFF_SLASH_PERMS);
             }
             for (index, c) in s.args.chars().enumerate() {
                 let (kind, label) = match c {
@@ -243,7 +276,7 @@ pub async fn run(
 ) -> Result<String, String> {
     let Some(spec) = spec(name) else {
         return Err(format!(
-            "there is no `{name}` command — try `{}help`",
+            "there is no `{name}` command - try `{}help`",
             state
                 .db
                 .guild_settings(guild)
@@ -282,21 +315,35 @@ pub async fn run(
         auto.command_cooldown_secs
             .max(if spec.staff_only { 0 } else { 3 }),
     ) {
-        return Err(format!("slow down — try again in {secs}s"));
+        return Err(format!("slow down - try again in {secs}s"));
     }
 
     let mod_cfg = state.db.mod_config(guild).unwrap_or_default();
+    // Every action a moderator takes needs the same seven things, and passing them one by one made
+    // `warn` and `moderate` read as a shopping list. One value, built here, says what the command
+    // was run with.
+    let m = Mod {
+        state,
+        ctx,
+        guild,
+        actor: &actor,
+        argv,
+        cfg: &mod_cfg,
+        channel,
+    };
     let out = match name {
-        "warn" => warn(state, ctx, guild, &actor, argv, context_message, &mod_cfg).await,
+        "warn" => warn(&m, context_message).await,
         "warns" => list_warns(state, guild, argv),
         "pardon" => pardon(state, guild, &actor, argv),
         "clearwarn" => clear_warns(state, guild, argv),
-        "kick" => moderate(state, ctx, guild, &actor, argv, "kick", &mod_cfg).await,
-        "ban" => moderate(state, ctx, guild, &actor, argv, "ban", &mod_cfg).await,
-        "softban" => moderate(state, ctx, guild, &actor, argv, "softban", &mod_cfg).await,
-        "unban" => moderate(state, ctx, guild, &actor, argv, "unban", &mod_cfg).await,
-        "timeout" => moderate(state, ctx, guild, &actor, argv, "timeout", &mod_cfg).await,
+        "kick" => moderate(&m, "kick").await,
+        "ban" => moderate(&m, "ban").await,
+        "softban" => moderate(&m, "softban").await,
+        "unban" => moderate(&m, "unban").await,
+        "timeout" => moderate(&m, "timeout").await,
         "purge" => purge(state, guild, &actor, channel, argv).await,
+        "freeze" => freeze(state, ctx, guild, argv, true).await,
+        "unfreeze" => freeze(state, ctx, guild, argv, false).await,
         "note" => note(state, guild, &actor, argv),
         "stats" => Ok(stats(state)),
         "ping" => Ok(ping(state)),
@@ -338,15 +385,28 @@ fn tail(argv: &[String]) -> String {
         .unwrap_or_default()
 }
 
-async fn warn(
-    state: &BotState,
-    ctx: &Context,
+/// What a command was run with: who, where, and the arguments after the name.
+#[derive(Clone, Copy)]
+struct Mod<'a> {
+    state: &'a BotState,
+    ctx: &'a Context,
     guild: Snowflake,
-    actor: &Actor,
-    argv: &[String],
-    context_message: Option<Snowflake>,
-    mod_cfg: &ModConfig,
-) -> Result<String, String> {
+    actor: &'a Actor,
+    argv: &'a [String],
+    cfg: &'a ModConfig,
+    channel: ChannelId,
+}
+
+async fn warn(m: &Mod<'_>, context_message: Option<Snowflake>) -> Result<String, String> {
+    let Mod {
+        state,
+        ctx,
+        guild,
+        actor,
+        argv,
+        cfg: mod_cfg,
+        channel,
+    } = *m;
     let user = target(argv)?;
     let reason = {
         let r = tail(argv);
@@ -368,9 +428,27 @@ async fn warn(
             context_message,
         )
         .map_err(|e| e.to_string())?;
+    let detail = format!("{} active warn(s)", outcome.active_count);
+    let told = notify::deliver(
+        state,
+        ctx,
+        guild,
+        &Action {
+            kind: Kind::Warn,
+            target: user,
+            target_name: "",
+            actor: &actor.label,
+            reason: &reason,
+            detail: Some(&detail),
+            // The card goes to the mod log; with no mod log, to the channel the command ran in,
+            // so an action is never invisible.
+            fallback_channel: Some(Snowflake(channel.get())),
+        },
+    )
+    .await;
     let mut reply = format!(
-        "⚠ Warned <@{user}> — {} active warn(s), reason: {reason}",
-        outcome.active_count
+        "⚠ Warned <@{user}> - {detail}, reason: {reason} · {}",
+        told_sentence(told)
     );
     if outcome.escalated {
         reply.push_str(&format!(
@@ -444,15 +522,16 @@ fn strike_action_name(action: &StrikeAction) -> String {
         .unwrap_or_else(|| "none".into())
 }
 
-async fn moderate(
-    state: &BotState,
-    ctx: &Context,
-    guild: Snowflake,
-    actor: &Actor,
-    argv: &[String],
-    action: &str,
-    mod_cfg: &ModConfig,
-) -> Result<String, String> {
+async fn moderate(m: &Mod<'_>, action: &str) -> Result<String, String> {
+    let Mod {
+        state,
+        ctx,
+        guild,
+        actor,
+        argv,
+        cfg: mod_cfg,
+        channel,
+    } = *m;
     let user = target(argv)?;
     let reason = {
         let r = if action == "timeout" {
@@ -482,6 +561,17 @@ async fn moderate(
     }
     let g = GuildId::new(guild.as_u64());
     let u = UserId::new(user.as_u64());
+    // Which card each action owes, decided once, next to the call that did it.
+    let kind = match action {
+        "kick" => Kind::Kick,
+        "ban" => Kind::Ban,
+        "softban" => Kind::SoftBan,
+        "unban" => Kind::Unban,
+        "timeout" => Kind::Timeout,
+        _ => Kind::Note,
+    };
+    let mut detail = None;
+    let mut minutes = 0i64;
     let reply = match action {
         "kick" => {
             g.kick(&ctx.http, u).await.map_err(|e| e.to_string())?;
@@ -489,7 +579,7 @@ async fn moderate(
                 .db
                 .record_kick(guild, user, actor.id, &reason)
                 .map_err(|e| e.to_string())?;
-            format!("👢 Kicked <@{user}> — {reason}")
+            "👢 Kicked".to_string()
         }
         "ban" => {
             g.ban_with_reason(&ctx.http, u, 0, &reason)
@@ -499,7 +589,7 @@ async fn moderate(
                 .db
                 .record_ban(guild, user, actor.id, &reason, 0, false)
                 .map_err(|e| e.to_string())?;
-            format!("🔨 Banned <@{user}> — {reason}")
+            "🔨 Banned".to_string()
         }
         "softban" => {
             g.ban_with_reason(&ctx.http, u, 7, &reason)
@@ -514,19 +604,19 @@ async fn moderate(
                 .db
                 .record_ban(guild, user, actor.id, &reason, 0, true)
                 .map_err(|e| e.to_string())?;
-            format!("🧹 Soft-banned <@{user}> and cleared their recent messages")
+            "🧹 Soft-banned and cleared their recent messages".to_string()
         }
         "unban" => {
             ctx.http
                 .remove_ban(g, u, Some(&reason))
                 .await
                 .map_err(|e| e.to_string())?;
-            format!("🔓 Unbanned <@{user}>")
+            "🔓 Unbanned".to_string()
         }
         "timeout" => {
             // `argv` is [user, minutes, …reason]: reading the first element as the
             // duration would "time out" somebody for their snowflake in minutes.
-            let minutes = argv
+            minutes = argv
                 .get(1)
                 .and_then(|s| s.parse::<i64>().ok())
                 .unwrap_or(10)
@@ -536,11 +626,89 @@ async fn moderate(
             g.edit_member(&ctx.http, u, edit)
                 .await
                 .map_err(|e| e.to_string())?;
-            format!("⏱ Timed out <@{user}> for {minutes} minutes")
+            "⏱ Timed out".to_string()
         }
         other => Err(format!("unknown moderation action {other:?}"))?,
     };
-    Ok(reply)
+    if action == "timeout" {
+        detail = Some(format!("{minutes} minute(s)"));
+    }
+    let told = notify::deliver(
+        state,
+        ctx,
+        guild,
+        &Action {
+            kind,
+            target: user,
+            target_name: "",
+            actor: &actor.label,
+            reason: &reason,
+            detail: detail.as_deref(),
+            fallback_channel: Some(Snowflake(channel.get())),
+        },
+    )
+    .await;
+    Ok(format!(
+        "{reply} <@{user}> - {reason} · {}",
+        told_sentence(told)
+    ))
+}
+
+/// What a moderator is owed after an action: whether anyone was told. Worded so the sentence is
+/// true when DMs are off and when the member has the bot blocked, which are different answers to
+/// the same question.
+fn told_sentence(out: notify::Delivered) -> String {
+    match (out.dm, out.logged) {
+        (true, true) => "they were DMed, and the mod log has the card".into(),
+        (true, false) => "they were DMed".into(),
+        (false, true) => "in the mod log (no DM channel with them)".into(),
+        (false, false) => "recorded; nothing could be posted (no mod-log channel set)".into(),
+    }
+}
+
+/// `!freeze` / `!unfreeze`. The dashboard's button queues the same plan through the outbox, so
+/// there is one implementation of "what a frozen server is" and the command cannot drift from it.
+/// A raid is not the moment to be hunting for a tab, and before this the only way out of a freeze
+/// was its timer.
+async fn freeze(
+    state: &BotState,
+    ctx: &Context,
+    guild: Snowflake,
+    argv: &[String],
+    active: bool,
+) -> Result<String, String> {
+    let raid = state.db.raid_config(guild).unwrap_or_default();
+    // The minutes come from the raid config when not given, because the operator already answered
+    // "how long" once and a command that asks again is a command people get wrong in a hurry.
+    let minutes = argv
+        .first()
+        .and_then(|s| s.trim().trim_end_matches('m').parse::<i64>().ok())
+        .or_else(|| raid.auto_recover_secs.checked_div(60).map(i64::from))
+        .unwrap_or(15)
+        .clamp(1, 1440);
+    let plan = crate::raid::Plan {
+        active,
+        minutes,
+        slowmode_secs: raid.lockdown_slowmode_secs.clamp(0, 21_600) as u16,
+        raise_verification: raid.raise_verification,
+        notice: Some(if active {
+            format!("frozen by a moderator for {minutes} minute(s)")
+        } else {
+            String::new()
+        }),
+    };
+    let note = crate::raid::apply(state, ctx, guild, plan).await?;
+    state.db.audit_best_effort(
+        aerona_core::db::security::AuditEntry::new(if active {
+            "raid.lockdown"
+        } else {
+            "raid.unlock"
+        })
+        .for_guild(guild)
+        .user(Snowflake(0), "command")
+        .meta(serde_json::json!({ "result": note, "minutes": minutes })),
+    );
+    Ok(note)
 }
 
 /// Does `target` hold a role at or above the actor's highest one? Roles are compared by
@@ -630,7 +798,7 @@ fn list_warns(state: &BotState, guild: Snowflake, argv: &[String]) -> Result<Str
     let mut lines = vec![format!("**Warns for <@{user}>** ({}):", warns.len())];
     for w in warns.iter().take(10) {
         lines.push(format!(
-            "· `#{}` {} — {}{}",
+            "· `#{}` {} - {}{}",
             w.id,
             &crate::gate::rfc3339(w.created_at)[..10],
             clamp_chars(&w.reason, 60),
@@ -718,7 +886,7 @@ fn ping(state: &BotState) -> String {
     if latency == 0 {
         "measuring…".into()
     } else {
-        format!("Pong — {} ms to the gateway.", latency)
+        format!("Pong - {} ms to the gateway.", latency)
     }
 }
 
@@ -755,7 +923,7 @@ async fn level(state: &BotState, guild: Snowflake, argv: &[String]) -> Result<St
         .map_err(|e| e.to_string())?;
     let who = user.map_or("you".to_string(), |u| format!("<@{u}>"));
     Ok(format!(
-        "{} is level **{level}** — {xp}/{need} XP to the next one.",
+        "{} is level **{level}** - {xp}/{need} XP to the next one.",
         who
     ))
 }
@@ -826,7 +994,7 @@ fn help(settings: &GuildSettings, staff: bool) -> String {
             })
             .collect::<String>();
         lines.push(format!(
-            "· `{}{}{}` — {}",
+            "· `{}{}{}` - {}",
             settings.prefix,
             s.name,
             args.trim_end(),
@@ -1008,7 +1176,7 @@ mod tests {
             false,
         );
         // The spec order is user-then-number for `timeout` (`ut` is reason-tail, `unt`
-        // is not a spec — this asserts the mapping, not the ordering).
+        // is not a spec - this asserts the mapping, not the ordering).
         assert!(!argv.is_empty());
     }
 

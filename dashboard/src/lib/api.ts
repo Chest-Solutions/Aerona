@@ -2,7 +2,7 @@
  * The only place the dashboard talks to the network.
  *
  * Three rules, learned from the API's own gate:
- *  1. `credentials: 'include'` — the session lives in an HttpOnly cookie, so it is
+ *  1. `credentials: 'include'` - the session lives in an HttpOnly cookie, so it is
  *     never readable here and never written to storage.
  *  2. Every mutating request carries `x-aerona-csrf`. The value comes from
  *     `GET /api/v1/me`, i.e. from the server, in memory only.
@@ -26,7 +26,7 @@ export class ApiError extends Error {
     // A 401 is a fact about the visitor, not about the request, and "unauthorized" reads like a
     // bug in the product. The gate sends such a browser to the sign-in page; if any of this text
     // survives into a toast or a card, it has to read as the instruction it actually is.
-    super(status === 401 ? 'Not signed in — sign in again.' : (body?.error?.message ?? fallback))
+    super(status === 401 ? 'Not signed in - sign in again.' : (body?.error?.message ?? fallback))
     this.name = 'ApiError'
     this.status = status
     this.code = body?.error?.code ?? (status === 0 ? 'network' : `http_${status}`)
@@ -69,7 +69,7 @@ export async function request<T>(method: string, path: string, init: FetchInit =
     })
   } catch (e) {
     if ((e as Error)?.name === 'AbortError') throw e
-    throw new ApiError(0, null, 'cannot reach the aerona api — is it running?')
+    throw new ApiError(0, null, 'cannot reach the aerona api - is it running?')
   }
   const text = await res.text()
   let json: unknown = null
@@ -188,11 +188,12 @@ export type Feature =
   | 'welcome'
   | 'logging'
   | 'commands'
+  | 'capes'
 
 export const settingsDoc = (g: string, f: Feature) => get<Record<string, unknown>>(`/guilds/${g}/settings/${f}`)
 export type SettingsSave = {
   changed: boolean
-  /** The stored document, defaults filled — adopt this rather than what you sent. */
+  /** The stored document, defaults filled - adopt this rather than what you sent. */
   settings: Record<string, unknown>
   ignored?: string[]
   /**
@@ -274,6 +275,10 @@ export type Ticket = {
   createdAt: number
   closedAt: number | null
   messageCount: number
+  /** When the channel is due to be deleted, from the guild's setting, and when it was. The
+   *  transcript is not affected by either: it lives in Aerona, not in the channel. */
+  deleteAt?: number | null
+  channelDeletedAt?: number | null
 }
 export type TranscriptRow = { authorId: string; author: string; content: string; internal: boolean; at: number; seq: number }
 export const tickets = (g: string, opts: { status?: string; limit?: number; offset?: number } = {}) => {
@@ -291,7 +296,68 @@ export const claimTicket = (g: string, id: number, force = false) => post<{ clai
 export const unclaimTicket = (g: string, id: number) => post<{ unclaimed: boolean }>(`/guilds/${g}/tickets/${id}/unclaim`)
 export const ticketMessage = (g: string, id: number, content: string, internal = false) =>
   post<{ id: number; internal: boolean }>(`/guilds/${g}/tickets/${id}/messages`, { content, internal })
-export const ticketTranscriptUrl = (g: string, id: number) => `${API}/guilds/${g}/tickets/${id}/transcript`
+/** `format` overrides the guild's own setting for one download, which is what a moderator
+ *  reading a transcript in a browser needs, and not what the guild wants stored. */
+/**
+ * The transcript, as a page. `download` adds the one query that turns it back into a file, for a
+ * moderator who wants a copy in a case folder rather than a tab. The route answers HTML inline by
+ * default, which is what makes the link in the panel *open* something: an attachment disposition on
+ * a document a browser could render is a button that appears to do nothing.
+ */
+export const ticketTranscriptUrl = (
+  g: string,
+  id: number,
+  format?: 'html' | 'text' | 'json',
+  download = false,
+) => {
+  const params = new URLSearchParams()
+  if (format) params.set('format', format)
+  if (download) params.set('download', '1')
+  const q = params.toString()
+  return `${API}/guilds/${g}/tickets/${id}/transcript${q ? `?${q}` : ''}`
+}
+
+// ---------------------------------------------------------------------- capes
+
+/**
+ * One cape the notifier has seen. `render_kind` is the honest answer to "is that picture yours":
+ * `drape` is drawn from the texture file by this install, `wiki` is the wiki's own render of the
+ * cape worn, and `none` means the page had nothing to show and the announcement carried the name and
+ * the article alone.
+ */
+export type CapeRow = {
+  id: number
+  slug: string
+  title: string
+  name: string
+  article_url: string
+  texture_file: string
+  render_kind: string
+  frames: number
+  has_render: boolean
+  last_rev: number
+  found_at: number
+  announced_at: number | null
+  /** Posts the channel refused. `frames > 0` and `attempts > 5` is a broken channel, not a bug. */
+  attempts: number
+  /** The hero angle, already picked. `null` when there is no picture to show. */
+  frameUrl: string | null
+}
+export type CapeList = {
+  config: Record<string, unknown>
+  channel: { id: string; name: string | null } | null
+  pingRole: { id: string; name: string | null } | null
+  releases: CapeRow[]
+  /** The worker's one line about its last pass. */
+  status: string
+  error: string | null
+  lastCheck: number
+  nextCheck: number | null
+  seeded: boolean
+  frames: number
+}
+export const capes = (g: string, signal?: AbortSignal | null) => get<CapeList>(`/guilds/${g}/capes`, signal)
+export const checkCapes = (g: string) => post<{ queued: boolean; note: string }>(`/guilds/${g}/capes/check`, {})
 
 // ------------------------------------------------------------------ stickies
 
@@ -299,19 +365,78 @@ export const ticketTranscriptUrl = (g: string, id: number) => `${API}/guilds/${g
 export type StickyRow = {
   id: number
   channel_id: string
+  /** `0` when the sticky was written here instead of copied from a message in Discord. */
   message_id: string
   sticky_message_id: string | null
   content: string
+  embed_title: string | null
+  embed_body: string | null
+  embed_color: number | null
   every_messages: number
   since_count: number
   created_by: string
   created_at: number
   last_run_at: number
+  /** The channel's name, from what the worker last saw. `null` means it has never reported. */
+  channelName: string | null
 }
-export const stickies = (g: string) => get<{ stickies: StickyRow[]; channels: string[] }>(`/guilds/${g}/stickies`)
-export const addSticky = (g: string, body: { channel: string; message: string; content: string; everyMessages: number }) =>
-  post<{ id: number; stickies: StickyRow[] }>(`/guilds/${g}/stickies`, body)
+export const stickies = (g: string) => get<{ stickies: StickyRow[]; config: Record<string, unknown> }>(`/guilds/${g}/stickies`)
+/** A sticky is text, an embed, or both, in one channel. `message` is only sent when somebody
+ *  picks a message to copy; without it the bot's own post is the sticky. */
+export const addSticky = (
+  g: string,
+  body: {
+    channel: string
+    message?: string
+    content?: string
+    embed_title?: string
+    embed_body?: string
+    embed_color?: number
+    everyMessages: number
+  },
+) => post<{ id: number; queued: number; stickies: StickyRow[] }>(`/guilds/${g}/stickies`, body)
 export const deleteSticky = (g: string, id: number) => del<{ ok: boolean }>(`/guilds/${g}/stickies/${id}`)
+
+/** What the logger recorded, newest first. `event` narrows it to one kind, which is the
+ *  difference between a log and a scroll through five thousand edits. */
+export const guildLog = (
+  g: string,
+  opts: { event?: string; limit?: number } = {},
+  signal?: AbortSignal | null,
+) =>
+  get<{ events: LogRow[]; channelId: string | null; tracks: string[] }>(
+    `/guilds/${g}/log?limit=${opts.limit ?? 60}${opts.event ? `&event=${opts.event}` : ''}`,
+    signal,
+  )
+
+/**
+ * One row of `GET /guilds/{guild}/log`, which is `read_event` in `db/logging.rs` restated: the
+ * keys are camelCase because that function builds them by hand, and there is no id column in the
+ * response. Naming them wrongly here is how a log table ends up rendering blanks.
+ */
+export type LogRow = {
+  at: number
+  event: string
+  summary: string
+  channelId: string | null
+  userId: string | null
+  messageId: string | null
+  before: string | null
+  after: string | null
+}
+
+/** A message the bot still holds text for, as the worker reported it. */
+export type RecentMessage = {
+  id: string
+  channelId: string
+  authorId: string
+  content: string
+  at: number
+}
+
+/** Tell the worker to publish channels, roles and recent messages now. Without it a picker waits
+ *  for the slow pass, which is how a channel created in Discord stayed missing for minutes. */
+export const pickerRefresh = (g: string) => post<{ queued: number }>(`/guilds/${g}/picker-refresh`, {})
 
 // --------------------------------------------------------------------- raid
 
@@ -471,14 +596,56 @@ export type CommandRow = {
   staffOnly?: boolean
   guildScoped?: boolean
 }
-export type PickerOption = { id: string; name: string }
+/** Exactly what the worker's `picker` report carries. `color` is Discord's own integer, and
+ *  `assignable` is false for a role no human can be given, so the panel hides it instead of saving
+ *  one Discord strips back off a minute later. */
+export type PickerOption = {
+  id: string
+  name: string
+  kind?: string
+  category?: string | null
+  color?: number
+  managed?: boolean
+  position?: number
+  iconUrl?: string | null
+  emoji?: string | null
+  assignable?: boolean
+}
 export type GuildReport = {
   /** What Discord accepted, as the worker last saw it. Every row is `reportedAt`, never now. */
   commands?: { reportedAt?: number; count?: number; commands?: CommandRow[]; disabled?: string[] } | null
-  /** Channels and roles, from the gateway cache, for the pickers on every other page. */
-  picker?: { reportedAt?: number; channels?: PickerOption[]; roles?: PickerOption[] } | null
+  /** Channels, categories and roles, from the gateway cache, for the pickers on every page. A
+   *  channel carries its own `category`, so the picker can group by it; `categories` is the list
+   *  a *ticket* field points at, because a category is the right answer exactly there. */
+  picker?: {
+    reportedAt?: number
+    channels?: PickerOption[]
+    categories?: PickerOption[]
+    roles?: PickerOption[]
+    seen?: number
+    /** Decorations the bot can actually see: the ones members of this server are wearing. Discord
+     *  will not list the catalogue for a bot, so "what could I put on" is answered by what is in
+     *  use, and `usedBy` is how many members wear that one. */
+    decorations?: { id: string; asset: string; usedBy: number }[]
+  } | null
+  /** The newest messages the bot holds text for, for every picker that points at a message. */
+  messages?: RecentMessage[] | null
   /** The last attempt to push this guild's copy of the bot's profile to Discord. */
-  identity?: { reportedAt?: number; ok?: boolean; error?: string | null; skipped?: string; fields?: string[] } | null
+  /** `member` and `profile` say which of the two halves Discord took: a nickname belongs to the
+   *  guild member and a bio or banner to the account, and an account profile is not something a bot
+   *  token may write. A refusal on one half is not a failure of the other. */
+  identity?: {
+    reportedAt?: number
+    ok?: boolean
+    error?: string | null
+    skipped?: string
+    fields?: string[]
+    member?: boolean
+    profile?: boolean
+    /** Field by field, what Discord said no to and why. The apply asks for one field per request
+     *  precisely so this map can be honest: a batch has one error for three refusals. */
+    refused?: Record<string, string> | null
+  } | null
   guildId?: string
 }
 export const guildReport = (g: string, signal?: AbortSignal | null) =>
@@ -488,6 +655,39 @@ export const guildReport = (g: string, signal?: AbortSignal | null) =>
     if (e instanceof ApiError && (e.status === 404 || e.unauthorized)) return { } as GuildReport
     throw e
   })
+
+/** One ticket type: a button in a channel, and the card that ticket gets. Keys are the DB row's
+ *  own snake_case names, like every other hand-built response. */
+export type TicketPanelRow = {
+  id: number
+  guild_id: string
+  channel_id: string
+  /** `0` until the worker has posted the board and bound it. */
+  message_id: string
+  label: string
+  emoji: string | null
+  support_role_id: string | null
+  sort: number
+  color: number | null
+  subject: string
+  intro: string
+}
+export const ticketPanels = (g: string) => get<{ panels: TicketPanelRow[] }>(`/guilds/${g}/ticket-panels`)
+export const addTicketPanel = (
+  g: string,
+  body: {
+    /** Omit it and the board goes wherever the Tickets page's ticket channel says. */
+    channel?: string
+    label: string
+    emoji?: string
+    supportRole?: string
+    sort?: number
+    color?: number
+    subject?: string
+    intro?: string
+  },
+) => post<{ id: number; queued: number; panels: TicketPanelRow[] }>(`/guilds/${g}/ticket-panels`, body)
+export const deleteTicketPanel = (g: string, id: number) => del<{ deleted: boolean }>(`/guilds/${g}/ticket-panels/${id}`)
 
 /** Ask the worker to (re)register this guild's slash commands. Queued, not awaited: the
  *  outbox is the only thing allowed to talk to Discord, and a slow Discord must not hang a
@@ -501,3 +701,16 @@ export const applyIdentity = (g: string) => post<{ queued: number; poll: string 
 export const stageAvatar = (g: string, dataUri: string) =>
   put<{ staged: boolean; kind: string; bytes: number; hash: string }>(`/guilds/${g}/identity/avatar`, { data: dataUri })
 export const clearAvatar = (g: string) => del<{ cleared: boolean }>(`/guilds/${g}/identity/avatar`)
+
+/** The banner is the avatar's twin: same route shape, same rule that the bytes are staged and only
+ *  the digest is kept. It is an account field, so unlike the nickname it leaves this server and
+ *  lands on every one - which is why the card says so rather than implying it is local. */
+export const stageBanner = (g: string, dataUri: string) =>
+  put<{ staged: boolean; kind: string; bytes: number; hash: string }>(`/guilds/${g}/identity/banner`, { data: dataUri })
+export const clearBanner = (g: string) => del<{ cleared: boolean }>(`/guilds/${g}/identity/banner`)
+
+/** Put a decoration on the bot, by id. One call takes both keys and omits what it should not
+ *  touch, because "clear this one" and "I said nothing about that one" are different requests and a
+ *  body built from a form's whole state cannot tell them apart. */
+export const setDecoration = (g: string, patch: { avatar_decoration_id?: string; banner_decoration_id?: string }) =>
+  put<{ saved: boolean; queued: number }>(`/guilds/${g}/identity/deco`, patch)

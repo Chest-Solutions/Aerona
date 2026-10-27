@@ -1,7 +1,7 @@
 /**
  * Every page inside one server.
  *
- * The rail on the left is the product's feature list, read from `lib/nav.ts` — one table, so
+ * The rail on the left is the product's feature list, read from `lib/nav.ts` - one table, so
  * the sidebar, the routes and the section heads can never disagree about what exists. The
  * guard at the top is the other half: no session sends you to Discord with this URL attached,
  * and no bot in the server shows you the invite instead of an empty moderation table.
@@ -29,6 +29,7 @@ import Overview from './guild/Overview'
 import Moderation from './guild/Moderation'
 import Tickets from './guild/Tickets'
 import Stickies from './guild/Stickies'
+import Capes from './guild/Capes'
 import Raid from './guild/Raid'
 import Filter from './guild/Filter'
 import Links from './guild/Links'
@@ -46,6 +47,7 @@ const VIEWS: Record<string, React.ComponentType> = {
   moderation: Moderation,
   tickets: Tickets,
   stickies: Stickies,
+  capes: Capes,
   raid: Raid,
   filter: Filter,
   links: Links,
@@ -148,12 +150,12 @@ function Frame({ children, skeleton }: { children?: React.ReactNode; skeleton?: 
 function Rail() {
   // Read once, at the top: a hook inside the `.map` below would be a different number of
   // hooks per render, which React forbids and the production build catches later and louder.
-  const { id, name, present, page } = useGuild()
+  const { id, name, icon, present, page } = useGuild()
   const active = pageFor(page)?.seg ?? ''
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
-        <GuildSwitcher current={{ id, name, icon: null, botPresent: present }} />
+        <GuildSwitcher current={{ id, name, icon, botPresent: present }} />
       </SidebarHeader>
       <SidebarContent>
         {guildGroups.map((group) => {
@@ -205,7 +207,7 @@ function Rail() {
   )
 }
 
-/** Every server this account can open, with the one Aerona is not in marked as such —
+/** Every server this account can open, with the one Aerona is not in marked as such -
  *  switching here is how you do not have to go back to the list to change guild. */
 function GuildSwitcher({ current }: { current: { id: string; name: string; icon: string | null; botPresent: boolean } }) {
   const { data } = useAsync(() => fetchGuilds(), [])

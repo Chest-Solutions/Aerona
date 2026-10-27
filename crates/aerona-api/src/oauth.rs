@@ -7,7 +7,7 @@
 //! That permission check is the whole authorisation model now that the console pairing
 //! code is gone: there is exactly one door, and Discord holds the key to it.
 //!
-//! The request deliberately matches the shape of a plain Discord authorization link —
+//! The request deliberately matches the shape of a plain Discord authorization link -
 //! `response_type=code`, `scope=identify+guilds`, one `state`, nothing else. No PKCE
 //! (this is a confidential client: it authenticates with a client secret at the token
 //! endpoint) and no `prompt=none`, which asks Discord to fail rather than show the
@@ -45,7 +45,7 @@ const PERMISSION_MASK: i64 = (1 << 5) | (1 << 3);
 /// `http://localhost:PORT` fallback, and a `redirect_uri` built from it sends the browser
 /// to a machine it is not talking to. `Config::request_origin` reflects the request's own
 /// host when it is provably this box, and refuses when the host is a name the operator
-/// never configured — which is also the answer to Host-header injection, because a
+/// never configured - which is also the answer to Host-header injection, because a
 /// `redirect_uri` we took from the attacker's own header would collect the code for them.
 fn login_origin(state: &AppState, headers: &HeaderMap) -> Option<String> {
     let host = headers
@@ -70,7 +70,7 @@ fn login_origin(state: &AppState, headers: &HeaderMap) -> Option<String> {
 }
 
 /// Where a browser lands when a login cannot be completed. The dashboard turns these tokens
-/// into a sentence, so the reason is a fixed string from this module — or, for an error
+/// into a sentence, so the reason is a fixed string from this module - or, for an error
 /// Discord itself reported, the sanitised shadow of it: bounded to `[a-z0-9_-]` and 40
 /// characters, because the `error` query parameter is attacker-reachable text and a
 /// `Location` header is where a reflected string does the most damage.
@@ -100,7 +100,7 @@ fn safe_reason(err: &str) -> String {
 
 /// The `redirect_uri` this install would send for a request arriving with these headers, and
 /// where that value came from. `None` URI means "we refuse to guess", which the dashboard
-/// renders as the instruction to set the variable — never as a half-right URL.
+/// renders as the instruction to set the variable - never as a half-right URL.
 pub fn redirect_preview(state: &AppState, headers: &HeaderMap) -> (&'static str, Option<String>) {
     let origin = login_origin(state, headers);
     let source = if state.cfg.oauth_redirect_uri.is_some() {
@@ -129,7 +129,7 @@ pub fn redirect_guidance(state: &AppState, headers: &HeaderMap) -> Vec<String> {
             .redirect_uri_guidance(login_origin(state, headers).as_deref()),
         // Derived from this request's `Host`: describe the value, never repeat it.
         (_, Some(uri)) => state.cfg.redirect_uri_shape_notes(&uri),
-        // Nothing to derive from — the instruction is the whole answer.
+        // Nothing to derive from - the instruction is the whole answer.
         (_, None) => state.cfg.redirect_uri_guidance(None),
     }
 }
@@ -240,7 +240,7 @@ pub async fn finish_login(
 
     // Which servers this browser may configure is Discord's answer, not our database's: every
     // server where the account holds ADMINISTRATOR or MANAGE_GUILD. A server Aerona is not in
-    // *yet* belongs on that list — that is the state a first install is in, and the dashboard
+    // *yet* belongs on that list - that is the state a first install is in, and the dashboard
     // is where the invite happens (per-guild config stays empty until somebody edits it, so
     // there is nothing to be inconsistent about). What the list excludes is every server where
     // this account is not an admin, which is the whole access-control question.
@@ -307,7 +307,7 @@ fn dashboard_target(next: Option<&str>) -> &str {
 /// this origin before it is ever stored: leading single slash, no scheme, no protocol
 /// relative `//host`, no backslash, no control characters, and nothing outside the
 /// characters a router here could actually match. Anything else is `None`, which means
-/// "go to the top of the dashboard" — the boring answer is the safe one, and a person who
+/// "go to the top of the dashboard" - the boring answer is the safe one, and a person who
 /// typed a wrong path loses their place rather than their session.
 pub fn safe_next(raw: Option<&str>) -> Option<String> {
     let v = raw?.trim();
@@ -331,7 +331,7 @@ pub fn safe_next(raw: Option<&str>) -> Option<String> {
 }
 
 /// Discord's side of a sign-in: the code becomes a token, the token becomes a profile and a
-/// guild list. Three documents, not one — the token endpoint answers with `access_token`, and
+/// guild list. Three documents, not one - the token endpoint answers with `access_token`, and
 /// the account and its servers are two more requests made *with* that token. Reading `id` out
 /// of the token body was the bug that made every login on this product fail identically, and
 /// the shape of the two responses is why a test now pins them apart.
@@ -532,7 +532,7 @@ pub const BOT_INVITE_PERMISSIONS: i64 = 8;
 /// The "add Aerona to this server" link. `guild_id` with `disable_guild_select=false` opens
 /// Discord's sheet with that server already picked and still changeable; a bare bot link
 /// drops the operator on a dropdown of everything they own. No `response_type` and no
-/// `redirect_uri` — this is the "authorize and close" shape, and asking for a code we would
+/// `redirect_uri` - this is the "authorize and close" shape, and asking for a code we would
 /// have nowhere to send is how an invite link ends up as an error page.
 pub fn bot_invite_url(client_id: &str, guild_id: &str) -> String {
     format!(
@@ -594,8 +594,8 @@ fn upstream(e: &reqwest::Error) -> Error {
 /// The whole authorize request, in one pure line, because the only failure mode it has is
 /// "Discord did not recognise this" and that is a question of exact shape: `+` between the
 /// scopes, the callback path the router actually mounts, and *nothing* else. PKCE is not
-/// missing by accident — a confidential client authenticates with its secret at the token
-/// endpoint — and `prompt=none` is left off for the same reason: it asks Discord to fail a
+/// missing by accident - a confidential client authenticates with its secret at the token
+/// endpoint - and `prompt=none` is left off for the same reason: it asks Discord to fail a
 /// first-time consent rather than show it.
 fn authorize_url(client_id: &str, redirect_uri: &str, state: &str) -> String {
     format!(
@@ -692,7 +692,7 @@ mod tests {
 
     #[test]
     fn landing_page_is_the_dashboard_itself_unless_the_browser_asked_otherwise() {
-        // `/guild/<id>/` is never *invented* here — that was the old bug, a 404 with a valid
+        // `/guild/<id>/` is never *invented* here - that was the old bug, a 404 with a valid
         // cookie on it. What is allowed is the path the client itself requested before it was
         // bounced, because that one is a route the router owns.
         for granted in [None, Some(""), Some("https://elsewhere"), Some("//host/x")] {
@@ -770,7 +770,7 @@ mod tests {
         );
         // `applications.commands` is not decoration: without it the guild authorises the
         // bot but not its slash commands, and every command we register is refused in that
-        // server with no error we ever get to see — the failure is Discord's UI, not ours.
+        // server with no error we ever get to see - the failure is Discord's UI, not ours.
         assert!(url.contains("scope=bot%20applications.commands"), "{url}");
         for absent in ["redirect_uri", "response_type", "prompt="] {
             assert!(

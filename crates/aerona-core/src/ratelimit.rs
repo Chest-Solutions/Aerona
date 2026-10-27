@@ -136,7 +136,7 @@ impl<K: std::cmp::Eq + std::hash::Hash + Clone> BucketTable<K> {
     }
 }
 
-/// Fixed sliding window over `window_secs` — the shape anti-raid needs
+/// Fixed sliding window over `window_secs` - the shape anti-raid needs
 /// ("how many joins in the last 10 seconds?"). Stores timestamps per key,
 /// capped at `cap` so a flood cannot allocate without bound.
 pub struct Window {
@@ -284,7 +284,7 @@ mod tests {
     #[test]
     fn bucket_caps_burst_and_refills_at_rate() {
         // burst 5, 100 tokens/s: the cap is real, and a drained bucket comes back
-        // in ~10ms — `retry_after` may round up to a second, never down to zero.
+        // in ~10ms - `retry_after` may round up to a second, never down to zero.
         let mut b = Bucket::new(100.0, 5);
         let t = Instant::now();
         assert!(b.try_take(5.0, t).is_ok());
