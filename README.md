@@ -1,5 +1,9 @@
 # Aerona
 
+> [!CAUTION]
+> This project is currently unstable and will not be maintained (By me atleast)
+> Use this with caution
+
 A self-hosted Discord moderation and community platform: one SQLite file, two Rust
 binaries, and one React app which is the operator dashboard - the whole of it. There is no
 marketing site and no front page: `http://host:25154/` *is* the panel, and the only way in
